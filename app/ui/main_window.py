@@ -9,100 +9,77 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QColor, QFont
 
+from app.ui.wizards import (
+    WizardPerUnit, WizardInductancia, WizardCapacidad, WizardLineas,
+    WizardABCD, WizardCirculares, WizardFlujoPotencia, WizardDespacho, WizardFallas
+)
 from app.ui.widgets import ToolboxPanel, InspectorPanel
 from app.graphics.scene import PowerGraphicsView
-from app.ui.solver_panel import (
-    SolverPerUnit, SolverInductancia, SolverCapacidad, SolverLineas,
-    SolverConstantesABCD, SolverCirculares, SolverFlujoPotencia,
-    SolverDespachoEconomico, SolverFallas
-)
 import numpy as np
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Pantalla de Bienvenida / Selector de Módulos
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── Pantalla de Bienvenida ────────────────────────────────────────────────────
 class WelcomeScreen(QWidget):
     def __init__(self, on_module_select, on_go_canvas):
         super().__init__()
         self.on_module_select = on_module_select
-        layout = QVBoxLayout(self)
-        layout.setSpacing(0)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(self); layout.setSpacing(0); layout.setContentsMargins(0,0,0,0)
 
-        # Header de bienvenida
-        header = QFrame()
-        header.setFixedHeight(160)
-        header.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #020617,stop:1 #0f172a);")
-        h_lay = QVBoxLayout(header)
-        h_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title = QLabel("⚡ POWER ANALYZER PRO")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #38bdf8; font-size: 32px; font-weight: 900; letter-spacing: 4px;")
-        sub = QLabel("Análisis de Sistemas de Potencia — Pumacayo & Romero")
-        sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet("color: #64748b; font-size: 14px; margin-top: 8px;")
-        h_lay.addWidget(title); h_lay.addWidget(sub)
+        header = QFrame(); header.setFixedHeight(150)
+        header.setStyleSheet("background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #020617,stop:1 #0f172a);")
+        h_lay = QVBoxLayout(header); h_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t=QLabel("⚡ POWER ANALYZER PRO"); t.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t.setStyleSheet("color:#38bdf8;font-size:30px;font-weight:900;letter-spacing:4px;")
+        s=QLabel("Análisis de Sistemas de Potencia — Pumacayo C. & Romero L.")
+        s.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        s.setStyleSheet("color:#64748b;font-size:13px;margin-top:8px;")
+        b=QLabel("Cada módulo incluye: esquema eléctrico · pasos guiados · reporte PDF")
+        b.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        b.setStyleSheet("color:#334155;font-size:11px;")
+        h_lay.addWidget(t); h_lay.addWidget(s); h_lay.addWidget(b)
         layout.addWidget(header)
 
-        # Grid de módulos
-        scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: #020617; }")
-        content = QWidget(); content.setStyleSheet("background: #020617;")
-        grid = QGridLayout(content); grid.setSpacing(15); grid.setContentsMargins(30, 30, 30, 30)
+        scroll=QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea{border:none;background:#020617;}")
+        content=QWidget(); content.setStyleSheet("background:#020617;")
+        grid=QGridLayout(content); grid.setSpacing(12); grid.setContentsMargins(20,20,20,20)
 
         modules = [
-            ("1", "Valores por Unidad",        "Normalización de magnitudes. Base de todo el análisis.",     "#38bdf8", SolverPerUnit),
-            ("2", "Inductancia de Líneas",      "Parámetros L, GMD, GMR. Reactancia inductiva.",             "#10b981", SolverInductancia),
-            ("3", "Capacidad de Líneas",        "Parámetros C, susceptancia, potencia reactiva.",            "#f59e0b", SolverCapacidad),
-            ("4", "Líneas de Transmisión",      "Modelos corta/media/larga. Regulación y pérdidas.",         "#8b5cf6", SolverLineas),
-            ("5", "Constantes ABCD",            "Parámetros generalizados para análisis de redes.",          "#f472b6", SolverConstantesABCD),
-            ("6", "Diagramas Circulares",       "Potencia máx. transferible. Centros y radios.",             "#fb923c", SolverCirculares),
-            ("7", "Flujo de Potencia",          "Gauss-Seidel / Newton-Raphson. Convergencia iterativa.",    "#22d3ee", SolverFlujoPotencia),
-            ("8", "Despacho Económico",         "Lambda iteration. Costo mínimo de operación.",              "#facc15", SolverDespachoEconomico),
-            ("9", "Teoría de Fallas",           "Fallas 3φ, SLG, LL, DLG. Componentes simétricas.",        "#ef4444", SolverFallas),
+            ("1","Valores por Unidad",    "Bases, conversión y cambio de base p.u.",           "#38bdf8", WizardPerUnit),
+            ("2","Inductancia de Líneas", "GMD, GMR, L por fase, reactancia XL.",              "#10b981", WizardInductancia),
+            ("3","Capacidad de Líneas",   "Capacitancia, susceptancia, potencia reactiva.",     "#f59e0b", WizardCapacidad),
+            ("4","Líneas de Transmisión","Modelos corta/Pi, regulación, eficiencia.",          "#8b5cf6", WizardLineas),
+            ("5","Constantes ABCD",       "Cuadripolo de 2 puertos, parámetros generalizados.","#f472b6", WizardABCD),
+            ("6","Diagramas Circulares",  "Centro, radio, potencia máxima transferible.",       "#fb923c", WizardCirculares),
+            ("7","Flujo de Potencia",     "Ybus, Gauss-Seidel, flujos en ramas.",              "#22d3ee", WizardFlujoPotencia),
+            ("8","Despacho Económico",    "Lambda iteration, costo mínimo de operación.",       "#facc15", WizardDespacho),
+            ("9","Teoría de Fallas",      "Fallas 3φ, SLG, LL, DLG · componentes simétricas.","#ef4444", WizardFallas),
         ]
 
-        for idx, (num, name, desc, color, cls) in enumerate(modules):
-            card = self._make_card(num, name, desc, color, cls)
-            grid.addWidget(card, idx // 3, idx % 3)
+        for idx,(num,name,desc,color,cls) in enumerate(modules):
+            card=QFrame()
+            card.setStyleSheet(f"QFrame{{background:#0f172a;border:1px solid #1e293b;border-radius:10px;}}"
+                                f"QFrame:hover{{border:1px solid {color};}}")
+            cl=QVBoxLayout(card); cl.setSpacing(6)
+            badge=QLabel(f"TEMA {num}"); badge.setStyleSheet(f"color:{color};font-size:10px;font-weight:800;letter-spacing:2px;")
+            title=QLabel(name); title.setStyleSheet(f"color:#f8fafc;font-size:14px;font-weight:700;")
+            title.setWordWrap(True)
+            dl=QLabel(desc); dl.setStyleSheet("color:#64748b;font-size:10px;"); dl.setWordWrap(True)
+            btn=QPushButton("→ ABRIR")
+            btn.setStyleSheet(f"QPushButton{{background:{color}20;color:{color};border:1px solid {color}60;"
+                               f"border-radius:5px;padding:6px;font-weight:bold;}}"
+                               f"QPushButton:hover{{background:{color};color:#020617;}}")
+            btn.clicked.connect(lambda _,c=cls,n=name: self.on_module_select(c,n))
+            cl.addWidget(badge); cl.addWidget(title); cl.addWidget(dl); cl.addWidget(btn)
+            grid.addWidget(card, idx//3, idx%3)
 
-        # Botón ir al canvas
-        btn_canvas = QPushButton("🗺️  Ir al Diagrama Unifilar →")
-        btn_canvas.setStyleSheet("""
-            QPushButton { background: #1e293b; color: #38bdf8; border: 1px solid #334155;
-            border-radius: 8px; padding: 15px; font-size: 14px; font-weight: bold; }
-            QPushButton:hover { background: #334155; }
-        """)
+        btn_canvas=QPushButton("🗺️  Ir al Diagrama Unifilar")
+        btn_canvas.setStyleSheet("QPushButton{background:#1e293b;color:#38bdf8;border:1px solid #334155;"
+                                  "border-radius:8px;padding:12px;font-size:13px;font-weight:bold;}"
+                                  "QPushButton:hover{background:#334155;}")
         btn_canvas.clicked.connect(on_go_canvas)
-        grid.addWidget(btn_canvas, 3, 0, 1, 3)
-
+        grid.addWidget(btn_canvas,3,0,1,3)
         scroll.setWidget(content); layout.addWidget(scroll)
-
-    def _make_card(self, num, name, desc, color, cls):
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{ background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; }}
-            QFrame:hover {{ border: 1px solid {color}; }}
-        """)
-        lay = QVBoxLayout(card); lay.setSpacing(8)
-        badge = QLabel(f"TEMA {num}")
-        badge.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: 800; letter-spacing: 2px;")
-        title = QLabel(name)
-        title.setStyleSheet(f"color: #f8fafc; font-size: 15px; font-weight: 700;")
-        title.setWordWrap(True)
-        desc_lbl = QLabel(desc)
-        desc_lbl.setStyleSheet("color: #64748b; font-size: 11px;")
-        desc_lbl.setWordWrap(True)
-        btn = QPushButton(f"🔬 ABRIR MÓDULO")
-        btn.setStyleSheet(f"""
-            QPushButton {{ background: {color}20; color: {color}; border: 1px solid {color}60;
-            border-radius: 6px; padding: 8px; font-weight: bold; }}
-            QPushButton:hover {{ background: {color}; color: #020617; }}
-        """)
-        btn.clicked.connect(lambda _, c=cls, n=name: self.on_module_select(c, n))
-        lay.addWidget(badge); lay.addWidget(title); lay.addWidget(desc_lbl); lay.addWidget(btn)
-        return card
 
 
 # ─────────────────────────────────────────────────────────────────────────────
