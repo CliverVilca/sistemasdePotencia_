@@ -200,6 +200,264 @@ def plot_lineas(VR_ln, VS, IR_f, Z, RV_pct):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TEMA 4 – Paso 5: Diagrama KVL fasorial (VR, Za·IS, VS)
+# ─────────────────────────────────────────────────────────────────────────────
+def plot_lineas_kvl(v):
+    """Diagrama fasorial KVL: VS = VR + Za·IS  (Paso 5 del wizard)."""
+    R = v['R']; X = v['X']
+    VR_kv = v['VR']; IR_mag = v['IR']
+    fp  = min(max(v['fp'], 0.001), 1.0)
+    t   = int(v.get('tipo', 1)) if v.get('tipo', 1) in (1.0, -1.0, 0.0) else 1
+    phi = np.arccos(fp)
+
+    Z    = complex(R, X)
+    VR_ln = VR_kv * 1e3 / np.sqrt(3)
+    VR_f  = complex(VR_ln, 0)
+    IS_f  = complex(IR_mag * fp, -t * IR_mag * np.sin(phi))
+    VS    = VR_f + Z * IS_f
+    caida = Z * IS_f
+    RV    = (abs(VS) - abs(VR_f)) / abs(VR_f) * 100
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle("Tema 4 — Paso 5: KVL  VS = VR + Za·IS", color=TEXT_COL, fontsize=13, fontweight="bold")
+    _style(fig, [ax1, ax2])
+
+    # ── FASORIAL ──
+    ax1.set_aspect("equal")
+    vecs = [
+        (0+0j,    VR_f,  COLORS[1], "VR"),
+        (VR_f,    VS,    COLORS[2], "Za·IS"),
+        (0+0j,    VS,    COLORS[0], "VS"),
+        (0+0j,    IS_f * VR_ln / abs(IS_f) / 3, COLORS[3], "IS (escala)"),
+    ]
+    for start, end, col, lbl in vecs:
+        if abs(end - start) < 1: continue
+        ax1.annotate("", xy=(end.real, end.imag), xytext=(start.real, start.imag),
+                     arrowprops=dict(arrowstyle="-|>", color=col, lw=2.2, mutation_scale=14))
+        mid = (start + end) / 2
+        ax1.text(mid.real + abs(end-start)*0.02, mid.imag + abs(end-start)*0.04,
+                 lbl, color=col, fontsize=9, fontweight="bold")
+
+    mx = max(abs(VS), abs(VR_f)) * 1.2
+    ax1.set_xlim(-mx * 0.15, mx * 1.15); ax1.set_ylim(-mx * 0.35, mx * 0.55)
+    ax1.axhline(0, color=GRID_COL, lw=0.8); ax1.axvline(0, color=GRID_COL, lw=0.8)
+    ax1.set_xlabel("Real (V)"); ax1.set_ylabel("Imaginario (V)")
+    tipo_lbl = {1:"Inductiva (atraso)", -1:"Capacitiva (adelanto)", 0:"Resistiva"}[t]
+    ax1.set_title(f"Fasorial KVL — {tipo_lbl}   RV={RV:.3f}%", color=COLORS[0])
+
+    # ── PERFIL DE VOLTAJE ──
+    x = np.linspace(0, 1, 60)
+    V_prof = np.array([abs(VR_f) + (abs(VS) - abs(VR_f)) * xi for xi in x])
+    ax2.plot(x * 100, V_prof / 1e3, color=COLORS[0], lw=2.5, label="Perfil estimado")
+    ax2.fill_between(x * 100, V_prof / 1e3, abs(VR_f) / 1e3, alpha=0.15, color=COLORS[0])
+    ax2.axhline(abs(VR_f) / 1e3, color=COLORS[1], ls="--", lw=1.5, label=f"|VR|={abs(VR_f)/1e3:.3f} kV")
+    ax2.axhline(abs(VS) / 1e3,   color=COLORS[8], ls="--", lw=1.5, label=f"|VS|={abs(VS)/1e3:.3f} kV")
+    ax2.set_xlabel("Posición en la línea (%)"); ax2.set_ylabel("Voltaje L-N (kV)")
+    ax2.set_title(f"Perfil de Voltaje — RV={RV:.3f}%", color=COLORS[0])
+    ax2.legend(facecolor=DARK_BG, labelcolor=TEXT_COL, fontsize=8)
+
+    plt.tight_layout(); plt.show()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMA 4 – Caso B: Carga Resistiva (fp = 1.0)
+# ─────────────────────────────────────────────────────────────────────────────
+def plot_lineas_caso_B(v):
+    """Fasorial y perfil para Caso B (fp=1.0, resistiva)."""
+    R = v['R']; X = v['X']
+    VR_kv = v['VR']; IR_mag = v['IR']
+    Z    = complex(R, X)
+    VR_ln = VR_kv * 1e3 / np.sqrt(3)
+    VR_f  = complex(VR_ln, 0)
+    IR_f  = complex(IR_mag, 0)       # fp=1 => phi=0 => IR real
+    VS    = VR_f + Z * IR_f
+    RV    = (abs(VS) - abs(VR_f)) / abs(VR_f) * 100
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle("Tema 4 — Caso B: Carga Resistiva  fp = 1.0", color=TEXT_COL, fontsize=13, fontweight="bold")
+    _style(fig, [ax1, ax2])
+
+    ax1.set_aspect("equal")
+    vecs = [(0+0j, VR_f, COLORS[1], "VR"), (VR_f, VS, COLORS[2], "Za·IR"), (0+0j, VS, COLORS[0], "VS")]
+    for start, end, col, lbl in vecs:
+        ax1.annotate("", xy=(end.real, end.imag), xytext=(start.real, start.imag),
+                     arrowprops=dict(arrowstyle="-|>", color=col, lw=2.2, mutation_scale=14))
+        mid = (start + end) / 2
+        ax1.text(mid.real + abs(end-start)*0.02, mid.imag + abs(end-start)*0.04, lbl, color=col, fontsize=9, fontweight="bold")
+    # IR along real axis
+    ir_sc = IR_f / abs(IR_f) * abs(VR_f) * 0.25
+    ax1.annotate("", xy=(ir_sc.real, ir_sc.imag), xytext=(0, 0),
+                 arrowprops=dict(arrowstyle="-|>", color=COLORS[3], lw=1.8, mutation_scale=11))
+    ax1.text(ir_sc.real * 1.05, 0.02 * abs(VR_f), "IR (escala)", color=COLORS[3], fontsize=8)
+
+    mx = max(abs(VS), abs(VR_f)) * 1.2
+    ax1.set_xlim(-mx * 0.1, mx * 1.15); ax1.set_ylim(-mx * 0.3, mx * 0.4)
+    ax1.axhline(0, color=GRID_COL, lw=0.8); ax1.axvline(0, color=GRID_COL, lw=0.8)
+    ax1.set_xlabel("Real (V)"); ax1.set_ylabel("Imaginario (V)")
+    ax1.set_title(f"Fasorial Caso B (fp=1) — RV={RV:.3f}%", color=COLORS[0])
+
+    x = np.linspace(0, 1, 60)
+    V_prof = abs(VR_f) + (abs(VS) - abs(VR_f)) * x
+    ax2.plot(x * 100, V_prof / 1e3, color=COLORS[1], lw=2.5, label="Caso B fp=1.0")
+    ax2.fill_between(x * 100, V_prof / 1e3, abs(VR_f) / 1e3, alpha=0.15, color=COLORS[1])
+    ax2.axhline(abs(VR_f) / 1e3, color=COLORS[1], ls="--", label=f"|VR|={abs(VR_f)/1e3:.3f} kV")
+    ax2.axhline(abs(VS) / 1e3,   color=COLORS[8], ls="--", label=f"|VS|={abs(VS)/1e3:.3f} kV")
+    ax2.set_xlabel("Posición en la línea (%)"); ax2.set_ylabel("Voltaje L-N (kV)")
+    ax2.set_title(f"Perfil de Voltaje Caso B — RV={RV:.3f}%", color=COLORS[0])
+    ax2.legend(facecolor=DARK_BG, labelcolor=TEXT_COL, fontsize=8)
+
+    plt.tight_layout(); plt.show()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMA 4 – Caso C: Carga Capacitiva (fp = 0.9 adelanto)
+# ─────────────────────────────────────────────────────────────────────────────
+def plot_lineas_caso_C(v):
+    """Fasorial y perfil para Caso C (fp=0.9 adelanto, capacitiva)."""
+    R = v['R']; X = v['X']
+    VR_kv = v['VR']; IR_mag = v['IR']
+    fp   = 0.9
+    phi  = np.arccos(fp)
+    Z    = complex(R, X)
+    VR_ln = VR_kv * 1e3 / np.sqrt(3)
+    VR_f  = complex(VR_ln, 0)
+    IR_f  = complex(IR_mag * fp, +IR_mag * np.sin(phi))   # adelanto => +imag
+    VS    = VR_f + Z * IR_f
+    RV    = (abs(VS) - abs(VR_f)) / abs(VR_f) * 100
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle("Tema 4 — Caso C: Carga Capacitiva  fp=0.9 Adelanto", color=TEXT_COL, fontsize=13, fontweight="bold")
+    _style(fig, [ax1, ax2])
+
+    ax1.set_aspect("equal")
+    vecs = [(0+0j, VR_f, COLORS[1], "VR"), (VR_f, VS, COLORS[2], "Za·IR"), (0+0j, VS, COLORS[0], "VS")]
+    for start, end, col, lbl in vecs:
+        ax1.annotate("", xy=(end.real, end.imag), xytext=(start.real, start.imag),
+                     arrowprops=dict(arrowstyle="-|>", color=col, lw=2.2, mutation_scale=14))
+        mid = (start + end) / 2
+        ax1.text(mid.real + abs(end-start)*0.02, mid.imag + abs(end-start)*0.04, lbl, color=col, fontsize=9, fontweight="bold")
+    ir_sc = IR_f / abs(IR_f) * abs(VR_f) * 0.25
+    ax1.annotate("", xy=(ir_sc.real, ir_sc.imag), xytext=(0, 0),
+                 arrowprops=dict(arrowstyle="-|>", color=COLORS[3], lw=1.8, mutation_scale=11))
+    ax1.text(ir_sc.real * 1.05, ir_sc.imag * 1.1, f"IR∠+{np.degrees(phi):.1f}° (esc.)", color=COLORS[3], fontsize=8)
+
+    mx = max(abs(VS), abs(VR_f)) * 1.25
+    ax1.set_xlim(-mx * 0.1, mx * 1.2); ax1.set_ylim(-mx * 0.3, mx * 0.5)
+    ax1.axhline(0, color=GRID_COL, lw=0.8); ax1.axvline(0, color=GRID_COL, lw=0.8)
+    ax1.set_xlabel("Real (V)"); ax1.set_ylabel("Imaginario (V)")
+    rv_lbl = f"RV={RV:.3f}% ← NEGATIVA!" if RV < 0 else f"RV={RV:.3f}%"
+    ax1.set_title(f"Fasorial Caso C (cap.) — {rv_lbl}", color=COLORS[8] if RV < 0 else COLORS[0])
+
+    x = np.linspace(0, 1, 60)
+    V_prof = abs(VR_f) + (abs(VS) - abs(VR_f)) * x
+    color_line = COLORS[8] if RV < 0 else COLORS[2]
+    ax2.plot(x * 100, V_prof / 1e3, color=color_line, lw=2.5, label="Caso C fp=0.9 cap.")
+    ax2.fill_between(x * 100, V_prof / 1e3, abs(VR_f) / 1e3,
+                     alpha=0.15, color=color_line, label="_reg zona")
+    ax2.axhline(abs(VR_f) / 1e3, color=COLORS[1], ls="--", label=f"|VR|={abs(VR_f)/1e3:.3f} kV")
+    ax2.axhline(abs(VS) / 1e3,   color=COLORS[8], ls="--", label=f"|VS|={abs(VS)/1e3:.3f} kV")
+    if RV < 0:
+        ax2.text(50, (abs(VR_f) + abs(VS)) / 2e3, "⚠ Regulación NEGATIVA",
+                 color=COLORS[8], ha="center", fontsize=9, fontweight="bold")
+    ax2.set_xlabel("Posición en la línea (%)"); ax2.set_ylabel("Voltaje L-N (kV)")
+    ax2.set_title(f"Perfil de Voltaje Caso C — {rv_lbl}", color=COLORS[0])
+    ax2.legend(facecolor=DARK_BG, labelcolor=TEXT_COL, fontsize=8)
+
+    plt.tight_layout(); plt.show()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMA 4 – Diagnóstico Final: Comparación A / B / C
+# ─────────────────────────────────────────────────────────────────────────────
+def plot_diagnostico_lineas(v):
+    """Gráfica comparativa A/B/C: fasores superpuestos + barras RV% + barras Ploss."""
+    R   = v['R']; X = v['X']
+    VR_kv = v['VR']; IR_mag = v['IR']
+    Z   = complex(R, X)
+    VR_ln = VR_kv * 1e3 / np.sqrt(3)
+    VR_f  = complex(VR_ln, 0)
+
+    def _calc(fp_val, t):
+        phi = np.arccos(fp_val)
+        IR  = complex(IR_mag * fp_val, -t * IR_mag * np.sin(phi))
+        VS  = VR_f + Z * IR
+        RV  = (abs(VS) - abs(VR_f)) / abs(VR_f) * 100
+        Pl  = 3 * abs(IR)**2 * R / 1e6
+        PR  = (3 * VR_f * IR.conjugate()).real / 1e6
+        PS  = (3 * VS  * IR.conjugate()).real / 1e6
+        eta = PR / PS * 100 if PS > 0 else 0
+        return VS, IR, RV, Pl, eta
+
+    VS_A, IR_A, rvA, plA, etA = _calc(0.9,  1)
+    VS_B, IR_B, rvB, plB, etB = _calc(1.0,  0)
+    VS_C, IR_C, rvC, plC, etC = _calc(0.9, -1)
+
+    labels  = ["A\nfp=0.9 ind.", "B\nfp=1.0 res.", "C\nfp=0.9 cap."]
+    rv_vals = [rvA, rvB, rvC]
+    pl_vals = [plA, plB, plC]
+    et_vals = [etA, etB, etC]
+    vs_vals = [abs(VS_A) * np.sqrt(3) / 1e3, abs(VS_B) * np.sqrt(3) / 1e3, abs(VS_C) * np.sqrt(3) / 1e3]
+    bar_cols = [COLORS[0], COLORS[1], COLORS[2]]
+
+    fig = plt.figure(figsize=(15, 5))
+    fig.suptitle("Tema 4 — Diagnóstico Final: Comparación A / B / C", color=TEXT_COL, fontsize=13, fontweight="bold")
+    gs = fig.add_gridspec(1, 4, wspace=0.4)
+    ax1 = fig.add_subplot(gs[0])   # fasorial superpuesto
+    ax2 = fig.add_subplot(gs[1])   # RV%
+    ax3 = fig.add_subplot(gs[2])   # Ploss
+    ax4 = fig.add_subplot(gs[3])   # |VS|
+    _style(fig, [ax1, ax2, ax3, ax4])
+
+    # ── Fasorial superpuesto ──
+    ax1.set_aspect("equal")
+    casos = [
+        (VS_A, IR_A, COLORS[0], "A ind."),
+        (VS_B, IR_B, COLORS[1], "B res."),
+        (VS_C, IR_C, COLORS[2], "C cap."),
+    ]
+    for VS_i, IR_i, col, lbl in casos:
+        ax1.annotate("", xy=(VS_i.real, VS_i.imag), xytext=(0, 0),
+                     arrowprops=dict(arrowstyle="-|>", color=col, lw=2, mutation_scale=12))
+        ax1.text(VS_i.real * 1.03, VS_i.imag * 1.03, f"VS_{lbl[:1]}", color=col, fontsize=8)
+    # VR referencia
+    ax1.annotate("", xy=(VR_f.real, VR_f.imag), xytext=(0, 0),
+                 arrowprops=dict(arrowstyle="-|>", color=GRID_COL, lw=2, mutation_scale=12))
+    ax1.text(VR_f.real * 1.01, 0.02 * abs(VR_f), "VR", color=GRID_COL, fontsize=8)
+    mx = max(abs(VS_A), abs(VS_B), abs(VS_C), abs(VR_f)) * 1.2
+    ax1.set_xlim(-mx * 0.15, mx * 1.2); ax1.set_ylim(-mx * 0.4, mx * 0.5)
+    ax1.axhline(0, color=GRID_COL, lw=0.6); ax1.axvline(0, color=GRID_COL, lw=0.6)
+    ax1.set_title("Fasores VS (A/B/C)", color=COLORS[0])
+    ax1.set_xlabel("Real (V)"); ax1.set_ylabel("Imag (V)")
+
+    # ── RV% ──
+    bars = ax2.bar(labels, rv_vals, color=bar_cols, edgecolor=DARK_BG, width=0.5)
+    for bar, val in zip(bars, rv_vals):
+        ypos = val + 0.05 if val >= 0 else val - 0.15
+        ax2.text(bar.get_x() + bar.get_width() / 2, ypos, f"{val:.3f}%",
+                 ha="center", color=TEXT_COL, fontsize=9, fontweight="bold")
+    ax2.axhline(0, color=GRID_COL, lw=1.2)
+    ax2.set_ylabel("Regulacion RV (%)"); ax2.set_title("Regulación de Voltaje RV%", color=COLORS[0])
+
+    # ── Ploss ──
+    bars3 = ax3.bar(labels, pl_vals, color=bar_cols, edgecolor=DARK_BG, width=0.5)
+    for bar, val in zip(bars3, pl_vals):
+        ax3.text(bar.get_x() + bar.get_width() / 2, val + max(pl_vals) * 0.02,
+                 f"{val:.4f}", ha="center", color=TEXT_COL, fontsize=9)
+    ax3.set_ylabel("Perdidas (MW)"); ax3.set_title("Pérdidas en la Línea (MW)", color=COLORS[0])
+
+    # ── |VS| kV ──
+    bars4 = ax4.bar(labels, vs_vals, color=bar_cols, edgecolor=DARK_BG, width=0.5)
+    ax4.axhline(VR_kv, color=COLORS[1], ls="--", lw=1.5, label=f"|VR|={VR_kv} kV")
+    for bar, val in zip(bars4, vs_vals):
+        ax4.text(bar.get_x() + bar.get_width() / 2, val + max(vs_vals) * 0.005,
+                 f"{val:.4f}", ha="center", color=TEXT_COL, fontsize=9)
+    ax4.set_ylabel("|VS| L-L (kV)"); ax4.set_title("|VS| por Caso", color=COLORS[0])
+    ax4.legend(facecolor=DARK_BG, labelcolor=TEXT_COL, fontsize=8)
+
+    plt.tight_layout(); plt.show()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TEMA 5 – Diagrama cuadripolo ABCD + fasores
 # ─────────────────────────────────────────────────────────────────────────────
 def plot_abcd(A, B, VR_ln, IR_f, VS, IS):
