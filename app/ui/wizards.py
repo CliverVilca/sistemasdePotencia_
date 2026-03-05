@@ -1,146 +1,304 @@
 """9 módulos wizard paso a paso - Pumacayo & Romero"""
 import numpy as np
+import re
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap, QImage
+import io
 from app.ui.wizard_module import ModuleWizard, _lbl, _field, _box, _result_box, _sep
 import app.ui.plots as P
+from app.ui.diagram_views import (
+    DiagramPerUnit, DiagramInductancia, DiagramCapacidad, DiagramLineas,
+    DiagramABCD, DiagramCirculares, DiagramFlujoPotencia, DiagramDespacho, DiagramFallas
+)
+import io
+import matplotlib.pyplot as plt
 
+def _latex_to_html_img(formula: str, color: str = "#e2e8f0") -> str:
+    """Convierte una fórmula LaTeX a una imagen base64 incrustable en HTML."""
+    try:
+        from io import BytesIO
+        import base64
+        import matplotlib.pyplot as plt
+        
+        # Crear figura pequeña
+        plt.close('all')
+        fig = plt.figure(figsize=(0.1, 0.1), dpi=140)
+        fig.patch.set_alpha(0)
+        
+        # Color según el tema (si es gris o azulado)
+        txt_color = "white" if "#e2e8f0" in color else color
+        
+        text = fig.text(0.5, 0.5, f"${formula}$", 
+                       color=txt_color, fontsize=12, ha='center', va='center')
+        
+        buf = BytesIO()
+        # Guardar solo el área del texto
+        fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.05, transparent=True)
+        plt.close(fig)
+        
+        encoded = base64.b64encode(buf.getvalue()).decode('utf-8')
+        return f'<img src="data:image/png;base64,{encoded}" style="vertical-align:middle; margin:2px 0;">'
+    except Exception as e:
+        return f'<span style="color:#ef4444;font-family:monospace">[{_esc(formula)}]</span>'
 
 def _render_result_html(txt: str, accent: str = "#10b981") -> str:
-    """
-    Convierte la salida de texto plano de los helpers calc_* en HTML rico
-    con colorizacion semantica de secciones, formulas y resultados.
-    """
-    import re, html as _h
+    """Renderiza el desarrollo matemático como HTML estructurado y elegante."""
+    import re
+    def _esc(s):
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 
-    # Colores del tema
-    C_SECTION  = accent          # cabeceras ━━ ... ━━
-    C_FORMULA  = "#38bdf8"       # lineas con = o formulas
-    C_RESULT   = "#a3e635"       # resultados clave |VS|, RV%, etc.
-    C_NUM      = "#fbbf24"       # numeros y valores calculados
-    C_WARN     = "#fb923c"       # advertencias, NEGATIVA, ATENCION
-    C_CONCLUDE = "#c084fc"       # conclusiones [1] [2] ...
-    C_DIM      = "#475569"       # separadores ─────
-    C_LABEL    = "#64748b"       # etiquetas Za, VR, IR
-    BG_SECTION = "#0a1f14"
-    BG_FORMULA = "#071524"
+    def _math(line):
+        # Primero detectar bloques explícitos de LaTeX $$...$$
+        if "$$" in line:
+            line = re.sub(r'\$\$(.*?)\$\$', lambda m: _latex_to_html_img(m.group(1), accent), line)
+            return line # Si tiene LaTeX complejo, confiamos en Matplotlib
+
+        line = _esc(line)
+        # Símbolos griegos y matemáticos comunes
+        line = re.sub(r'\\b(lambda|phi|delta|theta|omega|sigma|pi)\\b', r'&\1;', line, flags=re.I)
+        # Subíndices: x_i -> x<sub>i</sub>
+        line = re.sub(r'([A-Za-z|θδφλΣΔ])_([A-Za-z0-9{}]+)', r'\1<sub>\2</sub>', line)
+        # Superíndices: x^2 -> x<sup>2</sup>
+        line = re.sub(r'([A-Za-z0-9)|}])\^([0-9A-Za-z]+)', r'\1<sup>\2</sup>', line)
+        # Fasores: |V|∠30 -> |V|<span style="font-size:10px;">∠</span>30
+        line = line.replace("∠", f'<span style="color:#38bdf8;font-weight:900">∠</span>')
+        # Colorear "= valor"
+        line = re.sub(r'(=\s*)([+-]?\d[\d.,e+-]*(?:\s*[A-Za-z%°Ω/pu]+)?)',
+                      lambda m: f'<span style="color:{accent};font-weight:900">{m.group(0)}</span>', line)
+        return line
 
     lines = txt.split("\n")
     html_parts = [
-        "<div style='font-family:Consolas,monospace; font-size:12px; "
-        "line-height:1.75; padding:4px 0;'>"
+        f'<div style="font-family:Consolas,monospace; font-size:11.5px; '
+        f'line-height:1.75; background:#050e1e; color:#e2e8f0; padding:12px;">'
     ]
 
     for raw in lines:
-        line = _h.escape(raw)  # escape HTML special chars
-        stripped = raw.strip()
+        stripped = raw.lstrip()
+        indent = len(raw) - len(stripped)
+        pad = "&nbsp;" * (indent * 2)
 
-        if not stripped:
-            html_parts.append("<br/>")
-            continue
-
-        # ── Cabeceras de seccion ━━ TITULO ━━ ────────────────────────────
-        if stripped.startswith(("━━", "══")):
-            # Quitar los caracteres de borde, dejar el texto
-            inner = stripped.strip("━═ \t")
+        # ── Líneas divisoras (━ ═ ─) ──────────────────────────────────────────
+        if any(c in stripped for c in "━═─"):
             html_parts.append(
-                f"<div style='background:{BG_SECTION}; border-left:3px solid {C_SECTION}; "
-                f"border-radius:4px; padding:3px 10px; margin:4px 0; "
-                f"color:{C_SECTION}; font-weight:900; font-size:11px; "
-                f"letter-spacing:0.8px;'>{inner or '&nbsp;'}</div>"
+                f'<div style="margin:10px 0 6px 0; border-top:1px solid {accent}33;"></div>'
             )
-            continue
-
-        # ── Separadores de tabla ──────────────────────────────────────────
-        if stripped.startswith(("─", "─────", "═", "━")):
+        # ── Títulos/Encabezados [N] ────────────────────────────────────────────
+        elif re.match(r'^\[\d+\]', stripped):
+            m = re.match(r'^(\[\d+\])(.*)', stripped)
+            num, rest = m.group(1), m.group(2)
             html_parts.append(
-                f"<hr style='border:none; border-top:1px solid #1e293b; margin:2px 0;'/>"
+                f'<div style="margin:8px 0 4px 0;">'
+                f'<span style="color:{accent}; font-weight:900; background:{accent}18; '
+                f'padding:2px 8px; border-radius:4px; border:1px solid {accent}44;">{_esc(num)}</span>'
+                f'  <span style="color:{accent}; font-weight:800; font-size:12px;">{_math(rest)}</span>'
+                f'</div>'
             )
-            continue
-
-        # ── Conclusiones [1], [2], ... ────────────────────────────────────
-        if re.match(r"^\[\d+\]", stripped):
+        # ── Iteraciones k=N o Pasos ────────────────────────────────────────────
+        elif any(k in stripped for k in ["Paso", "iteración", "it=", "Iter"]):
             html_parts.append(
-                f"<div style='color:{C_CONCLUDE}; padding-left:8px; margin:1px 0;'>{line}</div>"
+                f'<div style="color:#38bdf8; font-weight:700; margin:6px 0 2px 0;">'
+                f'{pad}<span style="color:#38bdf8;">◈</span> {_esc(stripped)}</div>'
             )
-            continue
-
-        # ── Advertencias / alertas ────────────────────────────────────────
-        if any(w in stripped.upper() for w in ("NEGATIVA", "ATENCION", "⚠", "CUIDADO", "ALERT")):
+        # ── Líneas finales (CONVERGENCIA, SOLUCION) ──────────────────────────
+        elif any(k in stripped.upper() for k in ["SOLUCION", "CONVERGENCIA", "FINAL"]):
             html_parts.append(
-                f"<div style='color:{C_WARN}; font-weight:700; padding-left:4px;'>{line}</div>"
+                f'<div style="background:{accent}10; border-left:4px solid {accent}; '
+                f'margin:10px 0; padding:6px 10px; color:{accent}; font-weight:900;">'
+                f'{pad}{_math(stripped)}</div>'
             )
-            continue
-
-        # ── Lineas de tabla de resultados (columnas alineadas) ─────────────
-        if re.match(r"^(A|B|C)\s+0\.", stripped) or (stripped.count("   ") >= 2 and re.search(r"\d+\.\d+", stripped)):
-            # Resalta los numeros en amarillo
-            highlighted = re.sub(
-                r"(-?\d+\.\d+)",
-                rf"<span style='color:{C_NUM}; font-weight:700;'>\1</span>",
-                line
-            )
+        # ── Líneas con "=" (fórmulas y resultados) ────────────────────────────
+        elif "=" in stripped and not stripped.startswith("#"):
+            html_parts.append(f'<div style="margin:2px 0;">{pad}{_math(stripped)}</div>')
+        # ── Bullet points ──────────────────────────────────────────────────────
+        elif stripped.startswith("•") or stripped.startswith("▸") or stripped.startswith("- "):
             html_parts.append(
-                f"<div style='background:#07121e; padding:1px 8px; "
-                f"border-radius:2px; color:#94a3b8;'>{highlighted}</div>"
+                f'<div style="color:#94a3b8; margin:2px 0;">{pad}{_math(stripped)}</div>'
             )
-            continue
-
-        # ── Lineas con signo = (formulas/calculos) ─────────────────────────
-        if "=" in stripped and len(stripped) > 4:
-            # subrayar partes a la derecha del ultimo =
-            # Numeros en amarillo, resto en cyan
-            highlighted = re.sub(
-                r"(-?\d+\.\d+(?:[eE][+-]?\d+)?)",
-                rf"<span style='color:{C_NUM}; font-weight:800;'>\1</span>",
-                line
-            )
-            # Simbolos matematicos en accent
-            highlighted = re.sub(
-                r"([∠∡√×÷±≈≤≥⟹⇒→←])",
-                rf"<span style='color:{C_SECTION}; font-weight:700;'>\1</span>",
-                highlighted
-            )
-            is_result = any(kw in stripped for kw in ("|VS|", "|VR|", "RV%", "Efici", "Ploss", "Perdidas", "eta", "PR =", "PS =", "QR =", "SR ="))
-            row_color = C_RESULT if is_result else C_FORMULA
-            row_bg    = "#071c0e" if is_result else BG_FORMULA
-            html_parts.append(
-                f"<div style='background:{row_bg}; color:{row_color}; "
-                f"padding:2px 8px; border-radius:3px; margin:1px 0;'>{highlighted}</div>"
-            )
-            continue
-
-        # ── Lineas que contienen resultado clave ──────────────────────────
-        if any(kw in stripped for kw in ("kV L-L", "kV L-N", "V L-N", " MW", " MVAR", " MVA", " A ", "% ", "deg", "Ohm", "Ω")):
-            highlighted = re.sub(
-                r"(-?\d+\.\d+(?:[eE][+-]?\d+)?)",
-                rf"<span style='color:{C_NUM}; font-weight:800;'>\1</span>",
-                line
-            )
-            html_parts.append(
-                f"<div style='color:{C_RESULT}; padding:1px 6px;'>{highlighted}</div>"
-            )
-            continue
-
-        # ── Lineas normales ────────────────────────────────────────────────
-        highlighted = re.sub(
-            r"(-?\d+\.\d+)",
-            rf"<span style='color:{C_NUM};'>\1</span>",
-            line
-        )
-        html_parts.append(
-            f"<div style='color:#94a3b8; padding:0 4px;'>{highlighted}</div>"
-        )
+        else:
+            html_parts.append(f'<div>{pad}{(_esc(stripped) if stripped else "&nbsp;")}</div>')
 
     html_parts.append("</div>")
     return "".join(html_parts)
 
 
-def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plot_fn=None):
+
+def _auto_plot_results(values: dict, result_txt: str, color: str = "#38bdf8"):
+    """Genera una gráfica automática de los valores numéricos calculados."""
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import re
+    # Extraer pares clave-valor numéricos del resultado
+    numeric_data = []
+    for line in result_txt.split("\n"):
+        # Buscar patrones como "XL = 12.345" o "|V| = 1.05 pu"
+        m = re.search(r"([A-Za-z|%Δ≡][\w\s|/·._²³°%Δ≡]*?)\s*[=:]\s*([+-]?\d+\.?\d*(?:e[+-]?\d+)?)", line)
+        if m:
+            try:
+                val = float(m.group(2))
+                label = m.group(1).strip()[:20]
+                if abs(val) > 1e-12 and abs(val) < 1e9:
+                    numeric_data.append((label, val))
+            except ValueError:
+                pass
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4))
+    fig.patch.set_facecolor("#020617")
+
+    # Gráfica izquierda: barras de valores extraídos (máx 8)
+    data = numeric_data[:8]
+    if data:
+        labels = [d[0] for d in data]
+        vals   = [abs(d[1]) for d in data]  # usar absoluto para las barras
+        bar_colors = [color] * len(data)
+        bars = ax1.bar(range(len(labels)), vals, color=bar_colors,
+                       edgecolor="#020617", linewidth=1.5, alpha=0.85)
+        ax1.set_xticks(range(len(labels)))
+        ax1.set_xticklabels(labels, rotation=30, ha="right", fontsize=8, color="#94a3b8")
+        for bar, v in zip(bars, vals):
+            ax1.text(bar.get_x() + bar.get_width()/2,
+                     bar.get_height() + max(vals) * 0.02 if vals else 0,
+                     f"{v:.4g}", ha="center", va="bottom",
+                     color="#f8fafc", fontsize=8, fontweight="bold")
+        ax1.set_facecolor("#0d1b2e")
+        ax1.tick_params(colors="#94a3b8", labelsize=8)
+        ax1.set_title("Resultados Numéricos", color=color, fontsize=11, fontweight="bold")
+        ax1.set_ylabel("Valor (magnitud)", color="#94a3b8")
+        for sp in ax1.spines.values(): sp.set_edgecolor("#334155")
+        ax1.yaxis.grid(True, color="#334155", linewidth=0.5, linestyle="--", alpha=0.5)
+        ax1.set_axisbelow(True)
+    else:
+        ax1.set_facecolor("#0d1b2e")
+        ax1.text(0.5, 0.5, "Sin datos numéricos\ndisponibles", ha="center",
+                 va="center", transform=ax1.transAxes, color="#334155", fontsize=11)
+        ax1.set_xticks([]); ax1.set_yticks([])
+        ax1.set_title("Resultados", color=color)
+
+    # Gráfica derecha: radar/tabla de parámetros de entrada
+    # Limpieza extrema: solo números reales
+    valid_numeric = []
+    for k, v in values.items():
+        try:
+            # Si es string con comas, es una lista -> no graficable directamente aquí
+            if isinstance(v, str) and ("," in v or ";" in v): continue
+            f_val = float(v)
+            if not np.isnan(f_val) and not np.isinf(f_val):
+                valid_numeric.append((k, abs(f_val)))
+        except: continue
+    
+    inp_data = valid_numeric[:8]
+    if inp_data and any(d[1] != 0 for d in inp_data):
+        labels2 = [d[0] for d in inp_data]
+        v_vals2 = [d[1] for d in inp_data]
+        max_val = max(v_vals2)
+        norm_v2 = [v/max_val if max_val != 0 else 0 for v in v_vals2]
+        # Colores dinámicos según magnitud
+        colors2 = [f"#{int(50+180*v):02x}{int(100+80*v):02x}{int(200-50*v):02x}" for v in norm_v2]
+        
+        bars2 = ax2.barh(range(len(labels2)), v_vals2, color=colors2, edgecolor="#020617", alpha=0.8)
+        ax2.set_yticks(range(len(labels2)))
+        ax2.set_yticklabels(labels2, fontsize=8, color="#94a3b8")
+        for bar, v in zip(bars2, v_vals2):
+            ax2.text(bar.get_width() + max_val*0.01, bar.get_y() + bar.get_height()/2,
+                     f"{v:.3g}", va="center", fontsize=8, color="#f8fafc", fontweight="bold")
+        ax2.set_facecolor("#0d1b2e")
+        ax2.tick_params(colors="#94a3b8", labelsize=8)
+        ax2.set_title("Parámetros de Entrada", color="#f59e0b", fontsize=11, fontweight="bold")
+        ax2.xaxis.grid(True, color="#334155", alpha=0.3)
+    else:
+        ax2.set_facecolor("#0d1b2e")
+        ax2.text(0.5, 0.5, "Sin parámetros\ngraficables", ha="center", va="center",
+                 transform=ax2.transAxes, color="#334155")
+        ax2.set_xticks([]); ax2.set_yticks([])
+        for sp in ax2.spines.values(): sp.set_edgecolor("#334155")
+        ax2.xaxis.grid(True, color="#334155", linewidth=0.5, linestyle="--", alpha=0.5)
+        ax2.set_axisbelow(True)
+
+    fig.tight_layout(pad=1.5)
+    # NO llamar plt.show() — será capturado por LivePlotCanvas.render()
+
+class LivePlotCanvas(QWidget):
+    """
+    Canvas robusto que renderiza gráficas de matplotlib como PNG y las muestra en un QLabel.
+    Esto evita problemas de incrustación directa de FigureCanvasQTAgg en algunos entornos.
+    """
+    def __init__(self, color="#10b981", parent=None):
+        super().__init__(parent)
+        self.color = color
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label.setStyleSheet("background: #020617; border-radius: 8px;")
+        self.layout.addWidget(self.label)
+        
+        self._last_pixmap = None
+        self.setMinimumHeight(400) # Un poco más alto para que sea la estrella del show
+        self.show_placeholder()
+
+    def show_placeholder(self):
+        self.label.setText(
+            f'<div style="color:{self.color}66; font-size:14px; font-family:Consolas; text-align:center;">'
+            f'<br><br><br><br>'
+            f'<span style="font-size:32px;">📊</span><br><br>'
+            f'Presiona ⚡ <b>CALCULAR</b> para generar la gráfica interactiva<br>'
+            f'<span style="font-size:11px; color:#475569;">— se actualiza automáticamente al cambiar valores —</span></div>'
+        )
+
+    def render(self, plot_fn, values):
+        """Ejecuta la función de plot y captura el resultado como imagen."""
+        import matplotlib.pyplot as plt
+        import io
+        try:
+            # Limpiar estado previo de plt
+            plt.close('all')
+            # Crear figura con fondo oscuro
+            fig = plt.figure(figsize=(10, 6.5), dpi=100)
+            fig.patch.set_facecolor('#020617')
+            
+            # Ejecutar función de usuario
+            plot_fn(values)
+            
+            # Guardar en buffer
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor(), dpi=120)
+            buf.seek(0)
+            
+            # Convertir a QPixmap
+            qimg = QImage.fromData(buf.read())
+            self._last_pixmap = QPixmap.fromImage(qimg)
+            self._update_label()
+            plt.close(fig)
+        except Exception as e:
+            print(f"Error rendering live plot: {e}")
+            self.label.setText(f'<div style="color:#ef4444; text-align:center; padding:20px;">'
+                             f'<b>Error en gráfica:</b><br>{str(e)}</div>')
+
+    def _update_label(self):
+        if self._last_pixmap:
+            # Escalar manteniendo aspecto
+            scaled = self._last_pixmap.scaled(
+                self.label.size(), 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.label.setPixmap(scaled)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._last_pixmap:
+            self._update_label()
+
+
+
+def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plot_fn=None, diagram_cls=None):
     """
     Widget de paso premium - layout 2 columnas: izquierda inputs, derecha resultados.
     calc_fn(vals) -> (inputs_dict, result_str)
     plot_fn(vals) -> None  [opcional]
+    diagram_cls   -> clase de diagram_views (opcional, reemplaza ASCII)
     """
     from PyQt6.QtCore import QPropertyAnimation, QEasingCurve
     from PyQt6.QtGui  import QColor
@@ -195,31 +353,44 @@ def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plo
     left_lay.setSpacing(8)
     left_lay.setContentsMargins(14, 10, 8, 10)
 
-    # Esquema ASCII — caja con borde luminoso
+    # Esquema: si hay diagram_cls usa el diagrama visual real, si no usa texto ASCII
     schema_frame = QFrame()
     schema_frame.setStyleSheet(
         f"background:#050e1e; border:1px solid {color}40; "
         f"border-radius:8px; border-left: 3px solid {color};"
     )
     sf_lay = QVBoxLayout(schema_frame)
-    sf_lay.setContentsMargins(8, 6, 8, 6)
+    sf_lay.setContentsMargins(4, 4, 4, 4)
     sf_lay.setSpacing(0)
-    schema_lbl = QLabel("CIRCUITO / FÓRMULA")
+    schema_lbl = QLabel("⬡  DIAGRAMA DEL SISTEMA" if diagram_cls else "CIRCUITO / FÓRMULA")
     schema_lbl.setStyleSheet(
         f"color:{color}88; font-size:9px; font-weight:900; "
-        "letter-spacing:1.5px; text-transform:uppercase;"
+        "letter-spacing:1.5px; padding:2px 6px;"
     )
     sf_lay.addWidget(schema_lbl)
-    schema = QTextEdit()
-    schema.setReadOnly(True)
-    schema.setPlainText(schema_txt)
-    schema.setStyleSheet(
-        f"background:transparent; color:{color}; font-family:Consolas; "
-        "font-size:12px; border:none; selection-background-color:#334155;"
-    )
-    schema.setMaximumHeight(110)
-    schema.setMinimumHeight(80)
-    sf_lay.addWidget(schema)
+    if diagram_cls:
+        try:
+            diag_widget = diagram_cls()
+            diag_widget.setMinimumHeight(160)
+            diag_widget.setMaximumHeight(200)
+            sf_lay.addWidget(diag_widget)
+        except Exception:
+            # Fallback a texto si falla
+            schema = QTextEdit(); schema.setReadOnly(True); schema.setPlainText(schema_txt)
+            schema.setStyleSheet(f"background:transparent; color:{color}; font-family:Consolas; font-size:11px; border:none;")
+            schema.setMaximumHeight(110); schema.setMinimumHeight(80)
+            sf_lay.addWidget(schema)
+    else:
+        schema = QTextEdit()
+        schema.setReadOnly(True)
+        schema.setPlainText(schema_txt)
+        schema.setStyleSheet(
+            f"background:transparent; color:{color}; font-family:Consolas; "
+            "font-size:12px; border:none; selection-background-color:#334155;"
+        )
+        schema.setMaximumHeight(110)
+        schema.setMinimumHeight(80)
+        sf_lay.addWidget(schema)
     left_lay.addWidget(schema_frame)
 
     # Sección de campos con título
@@ -307,32 +478,47 @@ def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plo
     divider.setStyleSheet(f"background:{color}25; color:{color}25; max-width:2px;")
     body_lay.addWidget(divider)
 
-    # ── COLUMNA DERECHA (resultados) ───────────────────────────────────────
+    # ── COLUMNA DERECHA (gráfica + resultados) ────────────────────────────
     right_panel = QWidget()
     right_panel.setStyleSheet("background:#020617;")
     right_lay = QVBoxLayout(right_panel)
-    right_lay.setSpacing(6)
-    right_lay.setContentsMargins(10, 10, 14, 10)
+    right_lay.setSpacing(4)
+    right_lay.setContentsMargins(6, 8, 10, 8)
 
+    # ── GRÁFICA LIVE (parte superior, siempre visible) ─────────────────
+    plot_header = QLabel("▸  GRÁFICA INTERACTIVA  — se actualiza automáticamente")
+    plot_header.setStyleSheet(
+        f"color:{color}; font-size:10px; font-weight:900; "
+        "letter-spacing:1px; margin-bottom:2px;"
+    )
+    right_lay.addWidget(plot_header)
+
+    live_canvas = LivePlotCanvas(color=color)
+    live_canvas.setMinimumHeight(300)
+    right_lay.addWidget(live_canvas, stretch=6)
+
+    # ── RESULTADOS TEXTO (parte inferior) ──────────────────────────────
     res_header = QLabel("▸  DESARROLLO Y RESULTADOS")
     res_header.setStyleSheet(
         "color:#10b981; font-size:10px; font-weight:900; "
-        "letter-spacing:1px; margin-bottom:2px;"
+        "letter-spacing:1px; margin-top:4px; margin-bottom:2px;"
     )
     right_lay.addWidget(res_header)
 
     res = QTextEdit()
     res.setReadOnly(True)
     res.setStyleSheet(
-        "background:#050e1e; color:#10b981; font-family:Consolas; font-size:12px;"
+        "background:#050e1e; color:#10b981; font-family:Consolas; font-size:11px;"
         "border:1px solid #0d3321; border-radius:8px; border-left:3px solid #10b981;"
-        "padding:10px; line-height:1.6; selection-background-color:#1e3a5f;"
+        "padding:8px; line-height:1.5; selection-background-color:#1e3a5f;"
     )
     res.setPlaceholderText(
         "⚡ Ingresa los datos y presiona CALCULAR para ver el desarrollo\n"
         "matemático paso a paso con todas las fórmulas..."
     )
-    right_lay.addWidget(res, stretch=1)
+    res.setMaximumHeight(220)
+    res.setMinimumHeight(120)
+    right_lay.addWidget(res, stretch=4)
 
     # Mini-barra de indicadores abajo del resultado
     kpi_bar = QFrame()
@@ -363,15 +549,25 @@ def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plo
     def on_calc():
         t0 = time.perf_counter()
         try:
-            vals = {k: float(v.text()) for k, v in fields.items()}
+            def _parse_v(s):
+                s = s.strip()
+                # Si tiene comas o punto-y-coma, lo dejamos como texto para que el wizard lo parsee
+                if "," in s or ";" in s: return s
+                try: return float(s)
+                except ValueError: return s
+
+            vals = {k: _parse_v(v.text()) for k, v in fields.items()}
             last_vals.clear(); last_vals.update(vals)
             inp, txt = calc_fn(vals)
+
+            # Usamos el renderizador mejorado
             res.setHtml(_render_result_html(txt, accent=color))
+
             step_data["inputs"] = inp
             step_data["result"] = txt
             elapsed = (time.perf_counter() - t0) * 1000
             n_lines = txt.count("\n") + 1
-            # Actualizar badge y KPIs
+
             status_badge.setText("✓  CALCULADO")
             status_badge.setStyleSheet(
                 "color:#10b981; font-size:10px; font-weight:800; "
@@ -384,15 +580,23 @@ def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plo
             kpi_lines.setStyleSheet("color:#94a3b8; font-size:10px; font-weight:700; font-family:Consolas;")
             kpi_ok.setText("✓ OK")
             kpi_ok.setStyleSheet("color:#10b981; font-size:10px; font-weight:800; font-family:Consolas;")
+
             if plot_fn:
+                live_canvas.render(plot_fn, vals)
                 btn_plot.setEnabled(True)
                 btn_plot.setStyleSheet(
                     f"background:#0a2218; color:#10b981; border:1.5px solid #10b981; "
                     f"font-weight:800; font-size:11px; padding:9px 14px; "
                     f"border-radius:7px; letter-spacing:0.5px;"
                 )
+            else:
+                def _make_auto(_v,_txt=txt,_col=color):
+                    _auto_plot_results(_v,_txt,_col)
+                live_canvas.render(_make_auto, vals)
         except Exception as ex:
-            res.setPlainText(f"❌ ERROR: {ex}\n\nVerifica que todos los campos tengan valores numéricos válidos.")
+            import traceback
+            err_details = traceback.format_exc() if "DEBUG" in str(ex) else ""
+            res.setPlainText(f"❌ ERROR: {ex}\n{err_details}\nVerifica que todos los campos tengan valores válidos.")
             status_badge.setText("✗  ERROR")
             status_badge.setStyleSheet(
                 "color:#ef4444; font-size:10px; font-weight:800; "
@@ -403,6 +607,16 @@ def _step_widget(schema_txt, desc_txt, fields_def, calc_fn, color="#38bdf8", plo
             kpi_ok.setStyleSheet("color:#ef4444; font-size:10px; font-weight:800; font-family:Consolas;")
 
     btn_calc.clicked.connect(on_calc)
+
+    # ── Timer de auto-actualizacion (debounce 600ms) ─────────────────────
+    from PyQt6.QtCore import QTimer as _QTimer
+    _debounce = _QTimer()
+    _debounce.setSingleShot(True)
+    _debounce.timeout.connect(on_calc)
+    def _on_field_changed(_txt=""):
+        _debounce.start(600)
+    for _fe in fields.values():
+        _fe.textChanged.connect(_on_field_changed)
     if plot_fn:
         btn_plot.clicked.connect(lambda: plot_fn(last_vals))
     w._step_data = step_data
@@ -449,7 +663,8 @@ class WizardPerUnit(ModuleWizard):
                     f"{(v['Vbase']*1e3)**2/(v['Sbase']*1e6):.4f} Ohm\n"
                     f"[3] Zpu = {v['Zreal']} / {(v['Vbase']*1e3)**2/(v['Sbase']*1e6):.4f} = "
                     f"{v['Zreal']/((v['Vbase']*1e3)**2/(v['Sbase']*1e6)):.5f} pu"),
-                "#38bdf8"),
+                "#38bdf8",
+                diagram_cls=DiagramPerUnit),
             _step_widget(
                 "BASE VIEJA  ──>  BASE NUEVA\n"
                 "  Zpunew = Zpuold * (Sbase_new/Sbase_old) * (Vbase_old/Vbase_new)^2",
@@ -463,8 +678,49 @@ class WizardPerUnit(ModuleWizard):
                     f"Zpunuevo = {v['Zpuold']} x ({v['Sbnew']}/{v['Sbold']}) x ({v['Vbold']}/{v['Vbnew']})^2\n"
                     f"Zpunuevo = {v['Zpuold'] * (v['Sbnew']/v['Sbold']) * (v['Vbold']/v['Vbnew'])**2:.6f} pu"),
                 "#38bdf8"),
-        ]
-        self.step_titles = ["Definir Bases","Convertir a p.u.","Cambio de Base"]
+                    _step_widget(
+                "Grupos Vectoriales del Transformador:\n"
+                "  Yd1: Y-delta -30 deg  Yd11: Y-delta +30 deg\n"
+                "  Yd5: -150 deg   Yy0: 0 deg  Yy6: -180 deg",
+                "Calcula el desplazamiento fasorial segun el grupo "
+                "vectorial. Grupos: 0=Yy0, 1=Yd1, 5=Yd5, 6=Yy6, 11=Yd11.",
+                [("V1LL","V1 primario L-L (kV)","115"),
+                 ("V2LL","V2 secundario L-L (kV)","13.8"),
+                 ("grupo","Grupo vectorial # (0,1,5,6,11)","1")],
+                lambda v: (v, _calc_grupo_vectorial(v)),
+                "#38bdf8"),
+]
+        self.step_titles = ["Definir Bases","Convertir a p.u.","Cambio de Base","Grupos Vectoriales Trafo"]
+
+
+def _calc_grupo_vectorial(v):
+    """Calcula el desplazamiento fasorial segun grupo vectorial del transformador."""
+    grupos = {
+        0:  ("Yy0",   "Dd0",   0),
+        1:  ("Yd1",   "Dy1",  -30),
+        5:  ("Yd5",   "Dy5",  -150),
+        6:  ("Yy6",   "Dd6",  -180),
+        11: ("Yd11",  "Dy11",  -330),
+    }
+    g = int(v['grupo'])
+    if g not in grupos: g=1
+    nombre_Y, nombre_D, desp_deg = grupos[g]
+    desp_rad = np.radians(desp_deg)
+    # Tension primario como referencia
+    V1 = complex(v['V1LL']*1e3/np.sqrt(3), 0)
+    # Tension secundario con desplazamiento fasorial
+    rel = v['V2LL'] / v['V1LL']
+    V2 = rel * abs(V1) * np.exp(1j*desp_rad)
+    return (f"Grupo vectorial: {nombre_Y} / {nombre_D}  (grupo {g})\n"
+            f"Desplazamiento fasorial: {desp_deg} grados\n"
+            f"V1 (primario ref): {abs(V1)/1e3:.4f} kV L-N = {v['V1LL']:.2f} kV L-L  ∠0°\n"
+            f"V2 (secundario):   {abs(V2)/1e3:.4f} kV L-N = {rel*abs(V1)*np.sqrt(3)/1e3:.4f} kV L-L\n"
+            f"  ∠V2 = {np.degrees(np.angle(V2)):.2f}° = {desp_deg}° (desplazamiento del grupo)\n"
+            f"━━ EFECTO EN EL SISTEMA ━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"V2 rectangular = {V2.real/1e3:.5f}{V2.imag/1e3:+.5f}j kV L-N\n"
+            f"Nota: En sistemas con trafo Yd1, la V secundaria\n"
+            f"  ATRASA 30° respecto a la primaria.\n"
+            f"  En Yd11 ADELANTA 30°. Yd5 ATRASA 150°.")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -495,7 +751,8 @@ class WizardInductancia(ModuleWizard):
                     f"r  = {v['r']} cm = {v['r']/100:.4f} m\n"
                     f"r' = r*e^(-1/4) = {v['r']/100*np.exp(-0.25)*100:.5f} cm\n"
                     f"GMD = {(v['D12']*v['D23']*v['D31'])**(1/3):.4f} m"),
-                "#10b981", plot_fn=pfn_L),
+                "#10b981", plot_fn=pfn_L,
+                diagram_cls=DiagramInductancia),
             _step_widget(
                 "L = (mu0 / 2*pi) * ln(GMD / r')\n"
                 "  mu0 = 4*pi * 10^-7  H/m\n"
@@ -506,8 +763,59 @@ class WizardInductancia(ModuleWizard):
                  ("freq","Frecuencia (Hz)","60")],
                 lambda v: (v, _calc_L(v)),
                 "#10b981", plot_fn=pfn_L),
+            _step_widget(
+                "Haces de Conductores (Bundle):\n"
+                "  n=2: DSL = sqrt(r'*d)\n"
+                "  n=3: DSL = (r'*d^2)^(1/3)\n"
+                "  n=4: DSL = 1.09*(r'*d^3)^(1/4)\n"
+                "  L_haz = 2e-7*ln(GMD/DSL)",
+                "Calcula la inductancia de lineas con haces de conductores (lineas UHV/EHV).",
+                [("n_sub","N subconductores por fase (1-4)","2"),
+                 ("r_sub","Radio de cada sub (cm)","1.2"),
+                 ("d_sub","Separacion entre subs d (cm)","45"),
+                 ("D12","D12 entre fases (m)","8.0"),
+                 ("D23","D23 entre fases (m)","8.0"),
+                 ("D31","D31 entre fases (m)","16.0"),
+                 ("freq","Frecuencia Hz","60")],
+                lambda v: (v, _calc_bundle(v)),
+                "#10b981"),
         ]
-        self.step_titles = ["Geometria del Conductor","Calcular L y XL"]
+        self.step_titles = ["Geometria del Conductor","Calcular L y XL","Haces de Conductores (Bundle)"]
+
+
+def _calc_bundle(v):
+    """Inductancia con haces de conductores (bundle conductors)."""
+    nsub = int(v['n_sub'])  # numero de subconductores
+    r_cm = v['r_sub']       # radio de cada subconductor (cm)
+    d_sub = v['d_sub']      # separacion entre subconductores (cm)
+    D12 = v['D12']; D23 = v['D23']; D31 = v['D31']
+    r_m = r_cm/100; ds_m = d_sub/100
+    rp = r_m * np.exp(-0.25)  # radio reducido del subconductor
+    # GMR del haz (Ds o DSL)
+    if nsub == 1:
+        GMR_haz = rp
+    elif nsub == 2:
+        GMR_haz = np.sqrt(rp * ds_m)
+    elif nsub == 3:
+        GMR_haz = (rp * ds_m**2)**(1/3)
+    elif nsub == 4:
+        GMR_haz = 1.09 * (rp * ds_m**3)**(1/4)
+    else:
+        GMR_haz = (rp * ds_m**(nsub-1))**(1/nsub)
+    # GMD entre fases
+    GMD = (D12 * D23 * D31)**(1/3)
+    L = 2e-7 * np.log(GMD / GMR_haz)
+    XL = 2 * np.pi * v['freq'] * L * 1000
+    return (f"Haz de {nsub} subconductores:\n"
+            f"  r_sub = {r_cm} cm  d_sep = {d_sub} cm\n"
+            f"  r' cada sub = {rp*100:.5f} cm\n"
+            f"GMR del haz = {GMR_haz*100:.5f} cm\n"
+            f"GMD entre fases = {GMD:.4f} m\n"
+            f"━━ COMPARACION CON CONDUCTOR SIMPLE ━━━━━━━━━━━\n"
+            f"  L_simple = 2e-7*ln({GMD:.4f}/{rp:.6f}) = {2e-7*np.log(GMD/rp)*1e3:.5f} mH/km\n"
+            f"  L_haz    = 2e-7*ln({GMD:.4f}/{GMR_haz:.6f}) = {L*1e3:.5f} mH/km\n"
+            f"  XL_haz = 2*pi*{v['freq']}*L = {XL:.5f} Ohm/km\n"
+            f"La inductancia del haz es MENOR (mejor transmision).")
 
 
 def _calc_L(v):
@@ -538,7 +846,8 @@ class WizardCapacidad(ModuleWizard):
                  ("D12","D12 (m)","2.0"),("D23","D23 (m)","2.5"),("D31","D31 (m)","4.5"),
                  ("freq","Frecuencia (Hz)","60")],
                 lambda v: (v, _calc_C(v)),
-                "#f59e0b"),
+                "#f59e0b",
+                diagram_cls=DiagramCapacidad),
             _step_widget(
                 "Potencia reactiva capacitiva:\n"
                 "  QC = V^2 * BC   [VAR/m]\n"
@@ -551,8 +860,26 @@ class WizardCapacidad(ModuleWizard):
                  ("longitud","Longitud de la linea (km)","200")],
                 lambda v: (v, _calc_QC(v)),
                 "#f59e0b"),
+            _step_widget(
+                "Metodo de Imagenes (efecto del suelo):\n"
+                "  C_aa = 2*pi*e0 / ln(H_aa / r)\n"
+                "  C_ab = 2*pi*e0 / ln(H_ab / D_ab)\n"
+                "  Hii = 2*hi (imagen a prof. doble)\n"
+                "  Hij = distancia entre cond. i e imagen de j",
+                "Calcula la capacitancia considerando el efecto del suelo (metodo de imagenes). "
+                "hi = altura del conductor sobre el suelo.",
+                [("r","Radio conductor r (cm)","1.5"),
+                 ("D12","D12 entre fases A-B (m)","2.0"),
+                 ("D23","D23 entre fases B-C (m)","2.5"),
+                 ("D31","D31 entre fases C-A (m)","4.5"),
+                 ("h1","Altura fase A sobre suelo h1 (m)","15.0"),
+                 ("h2","Altura fase B sobre suelo h2 (m)","15.0"),
+                 ("h3","Altura fase C sobre suelo h3 (m)","15.0"),
+                 ("freq","Frecuencia Hz","60")],
+                lambda v: (v, _calc_metodo_imagenes(v)),
+                "#f59e0b"),
         ]
-        self.step_titles = ["Capacitancia y Susceptancia","Potencia Reactiva Generada"]
+        self.step_titles = ["Capacitancia y Susceptancia","Potencia Reactiva Generada","Metodo de Imagenes (efecto tierra)"]
 
 
 def _calc_C(v):
@@ -571,6 +898,62 @@ def _calc_QC(v):
             f"QC/m = V_LN^2 * BC = ({v['VLN']} kV)^2 * {BC:.4e}\n"
             f"QC/m = {QC_m:.4f} VAR/m\n"
             f"QC total ({v['longitud']} km) = {QC_total:.4f} MVAR (3 fases)")
+
+
+def _calc_metodo_imagenes(v):
+    """Capacitancia con efecto del suelo usando metodo de imagenes (cap 3 Pumacayo)."""
+    r = v['r']/100        # radio en metros
+    D12=v['D12']; D23=v['D23']; D31=v['D31']
+    h1=v['h1']; h2=v['h2']; h3=v['h3']
+    freq=v['freq']
+    eps0 = 8.854187817e-12
+    # Distancias entre conductores (geometria real)
+    # Distancias entre conductor i y la IMAGEN del conductor j
+    # H_ii = 2*hi (altura doble)
+    H11 = 2*h1; H22 = 2*h2; H33 = 2*h3
+    # H_ij = distancia entre conductor i y la imagen reflejada del conductor j
+    # Imagen de j esta en posicion (xj, -hj)
+    # Simplificacion: conductores en linea recta horizontal
+    # A(0,h1) B(D12,h2) C(D12+D23,h3) => imagen B' a (D12,-h2)
+    # H12 = distancia A a imagen de B = sqrt(D12^2 + (h1+h2)^2)
+    H12 = np.sqrt(D12**2 + (h1+h2)**2)
+    H23 = np.sqrt(D23**2 + (h2+h3)**2)
+    H31 = np.sqrt(D31**2 + (h3+h1)**2)
+    # Coeficientes de potencial Maxwell p_ij = (1/(2*pi*eps0))*ln(H_ij/D_ij)
+    p11 = np.log(H11/r)        / (2*np.pi*eps0)
+    p22 = np.log(H22/r)        / (2*np.pi*eps0)
+    p33 = np.log(H33/r)        / (2*np.pi*eps0)
+    p12 = np.log(H12/D12)     / (2*np.pi*eps0)
+    p23 = np.log(H23/D23)     / (2*np.pi*eps0)
+    p31 = np.log(H31/D31)     / (2*np.pi*eps0)
+    # Matriz P (3x3) y su inversa = Matriz C
+    P = np.array([[p11,p12,p31],[p12,p22,p23],[p31,p23,p33]])
+    Cmat = np.linalg.inv(P)   # C = P^-1
+    # Capacitancia de secuencia positiva aprox (linea transpuesta)
+    C_pos = Cmat[0,0] - Cmat[0,1]   # aprox para cond. transpuestos
+    BC_pos = 2*np.pi*freq*C_pos
+    # Comparar con sin metodo imagenes
+    GMD=(D12*D23*D31)**(1/3)
+    C_sin_tierra = 2*np.pi*eps0/np.log(GMD/r)
+    # Iteraciones
+    txt = theory + f"Sistemas de 3 barras (Gauss-Seidel)\nit=0: V1={V1:.3f} V2={V2:.3f} V3={V3:.3f}\n"
+    return (f"Alturas sobre suelo: h1={h1}m  h2={h2}m  h3={h3}m\n"
+            f"━━ DISTANCIAS IMAGEN (H_ij) ━━━━━━━━━━━━━━━━━━━━\n"
+            f"H11 = 2*h1 = {H11:.2f} m  H22 = {H22:.2f} m  H33 = {H33:.2f} m\n"
+            f"H12 = sqrt(D12^2+(h1+h2)^2) = {H12:.4f} m\n"
+            f"H23 = {H23:.4f} m   H31 = {H31:.4f} m\n"
+            f"━━ COEFICIENTES DE MAXWELL (pij) ━━━━━━━━━━━━━━━\n"
+            f"p11={p11:.4e}  p12={p12:.4e}  p31={p31:.4e}\n"
+            f"p22={p22:.4e}  p23={p23:.4e}  p33={p33:.4e}\n"
+            f"━━ CAPACITANCIA (C = P^-1) ━━━━━━━━━━━━━━━━━━━━\n"
+            f"C11={Cmat[0,0]*1e12:.5f} pF/m  C12={Cmat[0,1]*1e12:.5f} pF/m\n"
+            f"C_seq_pos = C11-C12 = {C_pos*1e12:.5f} pF/m = {C_pos*1e9:.5f} nF/km\n"
+            f"BC_seq_pos = {BC_pos*1e6:.5f} uS/m\n"
+            f"━━ COMPARACION SIN/CON EFECTO DE TIERRA ━━━━━━━\n"
+            f"C_sin_tierra = {C_sin_tierra*1e12:.5f} pF/m\n"
+            f"C_con_tierra = {C_pos*1e12:.5f} pF/m\n"
+            f"Diferencia: {(C_pos-C_sin_tierra)/C_sin_tierra*100:.3f}% "
+            f"({'mayor' if C_pos>C_sin_tierra else 'menor'} con efecto tierra)")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -603,7 +986,8 @@ class WizardLineas(ModuleWizard):
                     complex(v['IR']*v['fp'],-v['IR']*np.sin(np.arccos(min(v['fp'],1.0)))),
                     complex(v['R'],v['X']),
                     (abs(complex(v['VR']*1e3/np.sqrt(3),0)+complex(v['R'],v['X'])*complex(v['IR']*v['fp'],-v['IR']*np.sin(np.arccos(min(v['fp'],1.0)))))-v['VR']*1e3/np.sqrt(3))/(v['VR']*1e3/np.sqrt(3))*100
-                )),
+                ),
+                diagram_cls=DiagramLineas),
             # ── PASO 2: Sumar impedancias en serie (Za) ──────────────────────
             _step_widget(
                 "SUMA DE IMPEDANCIAS EN SERIE (Za):\n"
@@ -713,6 +1097,23 @@ class WizardLineas(ModuleWizard):
                  ("VR","VR L-L (kV)","115"),("IR","Magnitud IR (A)","200"),("fp","Factor potencia","0.9")],
                 lambda v: (v, _calc_pi_line(v)),
                 "#8b5cf6"),
+            # ── LINEA LARGA (>250 km) con parametros distribuidos ───────────
+            _step_widget(
+                "LINEA LARGA (>250 km) — Parametros Distribuidos:\n"
+                "  gamma = sqrt(z*y)   Zc = sqrt(z/y)\n"
+                "  A = cosh(gL)  B = Zc*sinh(gL)  C = sinh(gL)/Zc\n"
+                "  VS = A*VR + B*IR     IS = C*VR + A*IR",
+                "Modelo exacto de linea larga con la ecuacion de onda (funciones hiperbolicas). "
+                "Ingresa parametros por kilometro y longitud.",
+                [("R_km","R por km (Ohm/km)","0.05"),
+                 ("X_km","X por km (Ohm/km)","0.4"),
+                 ("BC_km","BC por km (S/km)","2.8e-6"),
+                 ("longitud","Longitud (km)","300"),
+                 ("VR_LL","VR L-L (kV)","230"),
+                 ("IR","IR (A)","400"),
+                 ("fp","Factor potencia fp","0.95")],
+                lambda v: (v, _calc_linea_larga(v)),
+                "#8b5cf6"),
             # ── DIAGNOSTICO FINAL: Comparacion A / B / C ──────────────────────
             _step_widget(
                 "DIAGNOSTICO FINAL — COMPARACION A / B / C:\n"
@@ -741,8 +1142,48 @@ class WizardLineas(ModuleWizard):
             "Caso B — Carga Resistiva (fp=1.0)",
             "Caso C — Carga Capacitiva (fp=0.9 adelanto)",
             "Modelo Pi (Linea Media 80-250 km)",
+            "Linea Larga — Parametros Distribuidos (>250 km)",
             "Diagnostico Final — Comparacion Teorica A/B/C",
         ]
+
+
+def _calc_linea_larga(v):
+    """Linea larga: modelo de parametros distribuidos con funciones hiperbolicas."""
+    R=v['R_km']; X=v['X_km']; BC=v['BC_km']; L_km=v['longitud']
+    z = complex(R, X)           # impedancia serie por km
+    y = complex(0, BC)          # admitancia shunt por km
+    gamma = np.sqrt(z*y)        # constante de propagacion
+    Zc   = np.sqrt(z/y)         # impedancia caracteristica
+    gL   = gamma * L_km
+    A = np.cosh(gL)             # = D
+    B = Zc * np.sinh(gL)
+    C = np.sinh(gL) / Zc
+    VRln = v['VR_LL']*1e3/np.sqrt(3)
+    fp = v['fp']; phi = np.arccos(fp)
+    VR = complex(VRln, 0)
+    IR = complex(v['IR']*fp, -v['IR']*np.sin(phi))
+    VS = A*VR + B*IR
+    IS = C*VR + A*IR
+    RV = (abs(VS)-abs(VR))/abs(VR)*100
+    return (f"Parametros por km:\n"
+            f"  z = {R}+j{X} Ohm/km   y = j{BC} S/km\n"
+            f"━━ CONSTANTE DE PROPAGACION ━━━━━━━━━━━━━━━━━━━\n"
+            f"  gamma = sqrt(z*y) = {gamma.real:.6f}{gamma.imag:+.6f}j /km\n"
+            f"  |gamma| = {abs(gamma):.6f}   ang = {np.degrees(np.angle(gamma)):.2f} deg\n"
+            f"  beta*L = {np.degrees(gamma.imag*L_km):.4f} deg  (angulo electrico)\n"
+            f"━━ IMPEDANCIA CARACTERISTICA ━━━━━━━━━━━━━━━━━━\n"
+            f"  Zc = sqrt(z/y) = {Zc.real:.4f}{Zc.imag:+.4f}j Ohm\n"
+            f"  |Zc| = {abs(Zc):.4f} Ohm (SIL = |VR|^2/Zc.real)\n"
+            f"━━ CONSTANTES ABCD (LINEA LARGA) ━━━━━━━━━━━━━━\n"
+            f"  A = cosh(gL) = {A.real:.6f}{A.imag:+.6f}j\n"
+            f"  B = Zc*sinh(gL) = {B.real:.4f}{B.imag:+.4f}j Ohm\n"
+            f"  C = sinh(gL)/Zc = {C.real:.8f}{C.imag:+.8f}j S\n"
+            f"━━ EXTREMO DE ENVIO ━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"  |VS| = {abs(VS):.4f} V L-N = {abs(VS)*np.sqrt(3)/1e3:.5f} kV L-L\n"
+            f"  ang VS = {np.degrees(np.angle(VS)):.4f} deg\n"
+            f"  |IS| = {abs(IS):.4f} A   ang IS = {np.degrees(np.angle(IS)):.4f} deg\n"
+            f"  RV% = {RV:.4f}%\n"
+            f"  SIL = {abs(VRln)**2/(abs(Zc)+1e-9)/1e6:.3f} MW (pot. natural)")
 
 
 # ── helpers Tema 4 ────────────────────────────────────────────────────────────
@@ -1040,7 +1481,8 @@ class WizardABCD(ModuleWizard):
                 "Calcula las constantes ABCD para el modelo Pi.",
                 [("R","R total (Ohm)","5"),("X","X total (Ohm)","30"),("BC","BC total (S)","0.002")],
                 lambda v: (v, _calc_abcd(v)),
-                "#f472b6"),
+                "#f472b6",
+                diagram_cls=DiagramABCD),
             _step_widget(
                 "Aplicar ABCD para encontrar VS e IS:\n"
                 "  VS = A*VR + B*IR\n"
@@ -1094,6 +1536,7 @@ class WizardCirculares(ModuleWizard):
                  ("B_mag","|B| Ohm","35"),("B_ang","ang B (deg)","80")],
                 lambda v: (v, _calc_circle_params(v)),
                 "#fb923c",
+                diagram_cls=DiagramCirculares,
                 plot_fn=lambda v: P.plot_circulares(v['VS'],v['VR'],v['A_mag'],v['A_ang'],v['B_mag'],v['B_ang'])),
             _step_widget(
                 "Potencia transferida a angulo delta:\n"
@@ -1148,7 +1591,8 @@ class WizardFlujoPotencia(ModuleWizard):
                 [("y12","|Y12| linea 1-2 (pu)","10"),("y13","|Y13| linea 1-3 (pu)","8"),
                  ("y23","|Y23| linea 2-3 (pu)","12")],
                 lambda v: (v, _build_ybus(v)),
-                "#22d3ee"),
+                "#22d3ee",
+                diagram_cls=DiagramFlujoPotencia),
             _step_widget(
                 "Gauss-Seidel:\n"
                 "  Vi(k+1) = [1/Yii] * [(Pi-jQi)/Vi*(k) - sum_j!=i Yij*Vj]\n"
@@ -1160,6 +1604,23 @@ class WizardFlujoPotencia(ModuleWizard):
                  ("P3","P3 inyectada (pu)","-0.8"),("Q3","Q3 inyectada (pu)","-0.3"),
                  ("eps","Tolerancia epsilon","0.0001")],
                 lambda v: (v, _gauss_seidel_3bus(v)),
+                "#22d3ee"),
+            _step_widget(
+                "Newton-Raphson N-barras (coord. polares):\n"
+                "  [dP]   [H  N] [d_delta]\n"
+                "  [dQ] = [M  L] [d_|V|/|V|]\n"
+                "  Ybus imag solo-X: diagonal=suma  fuera=-yij",
+                "Newton-Raphson generico hasta N barras.\n"
+                "Tipos: 0=Slack 1=PQ 2=PV. Ybus_imag = reactancias (diag=suma, fuera=-yij).",
+                [("n_bus","N barras","3"),
+                 ("V_init","|V| iniciales pu (coma)","1.05,1.0,1.0"),
+                 ("ang_init","Angulos iniciales deg (coma)","0,0,0"),
+                 ("tipos","Tipos 0=slack 1=PQ 2=PV (coma)","0,1,1"),
+                 ("P_esp","P especificada pu (coma)","0,-0.5,-0.8"),
+                 ("Q_esp","Q especificada pu (coma)","0,-0.2,-0.3"),
+                 ("Yb_mag","Magnitudes Yij (filas sep ; comas)","18,10,8;10,22,12;8,12,20"),
+                 ("tol","Tolerancia","1e-6"),("max_iter","Max iter","50")],
+                lambda v: (v, _newton_raphson_nbus(v)),
                 "#22d3ee"),
             _step_widget(
                 "Flujos en las ramas:\n"
@@ -1174,7 +1635,7 @@ class WizardFlujoPotencia(ModuleWizard):
                 lambda v: (v, _calc_flows(v)),
                 "#22d3ee"),
         ]
-        self.step_titles = ["Formar Ybus","Iteracion Gauss-Seidel","Flujos en las Ramas"]
+        self.step_titles = ["Formar Ybus","Iteracion Gauss-Seidel","Newton-Raphson N-barras","Flujos en las Ramas"]
 
 
 def _build_ybus(v):
@@ -1186,6 +1647,15 @@ def _build_ybus(v):
             f"(todos imaginarios puros si solo reactancias)")
 
 def _gauss_seidel_3bus(v):
+    # Fundamento Teórico con LaTeX
+    theory = (
+        r"1. MARCO TEÓRICO Y FUNDAMENTO" + "\n"
+        r"El flujo de potencia se resuelve mediante la ecuación de inyección nodal:" + "\n"
+        r"$$ S_i = V_i \cdot I_i^* = V_i \cdot \sum_{j=1}^n Y_{ij}^* V_j^* $$" + "\n"
+        r"Para el método de Gauss-Seidel, despejamos el voltaje de la barra i:" + "\n"
+        r"$$ V_i^{(k+1)} = \frac{1}{Y_{ii}} \left[ \frac{P_i - jQ_i}{(V_i^{(k)})^*} - \sum_{j \neq i} Y_{ij} V_j \right] $$" + "\n"
+        r"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" + "\n"
+    )
     Y12=complex(0,-v['y12']); Y13=complex(0,-v['y13']); Y23=complex(0,-v['y23'])
     Y11=-(Y12+Y13); Y22=-(Y12+Y23); Y33=-(Y13+Y23)
     V1=complex(v['V1'],0); V2=complex(1,0); V3=complex(1,0)
@@ -1200,18 +1670,90 @@ def _gauss_seidel_3bus(v):
         if dV<v['eps']: res+=f"CONVERGENCIA en {k+1} iteraciones\n"; break
     return res
 
+def _newton_raphson_nbus(v):
+    """Newton-Raphson generico N-barras coordenadas polares."""
+    import re as _re
+    n = int(v['n_bus'])
+    def _pf(s):
+        return [float(x.strip()) for x in str(s).split(',') if x.strip()]
+    def _mat(s, n):
+        M = np.zeros((n,n))
+        for i,row in enumerate(str(s).split(';')[:n]):
+            for j,val in enumerate([float(x.strip()) for x in row.replace(' ','').split(',')][:n]):
+                M[i,j]=val
+        return M
+    Vmag= np.array(_pf(v['V_init']))[:n]
+    Vang= np.radians(np.array(_pf(v['ang_init']))[:n])
+    tipos=[int(x) for x in str(v['tipos']).split(',')][:n]
+    Pesp= np.array(_pf(v['P_esp']))[:n]
+    Qesp= np.array(_pf(v['Q_esp']))[:n]
+    Ym  = _mat(v['Yb_mag'],n)
+    # Construir Ybus: diag=+jYii, fuera=-jYij
+    Ybus=np.zeros((n,n),dtype=complex)
+    for i in range(n):
+        for j in range(n):
+            if i==j: Ybus[i,j]=complex(0, Ym[i,j])
+            else:    Ybus[i,j]=complex(0,-Ym[i,j])
+    slack=[i for i,t in enumerate(tipos) if t==0]
+    pq   =[i for i,t in enumerate(tipos) if t==1]
+    ns   =[i for i in range(n) if tipos[i]!=0]
+    tol=float(str(v['tol'])); mx=int(v['max_iter'])
+    res=f"N={n}  Slack={[i+1 for i in slack]}  PQ={[i+1 for i in pq]}\n"
+    res+="Newton-Raphson iteraciones:\n"
+    for it in range(mx):
+        V=Vmag*np.exp(1j*Vang); S=V*np.conj(Ybus@V)
+        Pc=S.real; Qc=S.imag
+        dP=np.array([Pesp[i]-Pc[i] for i in ns])
+        dQ=np.array([Qesp[i]-Qc[i] for i in pq])
+        mm=np.concatenate([dP,dQ]); err=np.max(np.abs(mm))
+        res+=f" Iter {it+1:2d}: |mis|={err:.4e}\n"
+        if err<tol: res+=f"CONVERGENCIA en {it+1} iters\n"; break
+        nb=len(ns); nq=len(pq)
+        J=np.zeros((nb+nq,nb+nq))
+        for ri,i in enumerate(ns):
+            for ci,k in enumerate(ns):
+                J[ri,ci]=(-Qc[i]-Ybus[i,i].imag*Vmag[i]**2) if i==k else Vmag[i]*Vmag[k]*(Ybus[i,k].real*np.sin(Vang[i]-Vang[k])-Ybus[i,k].imag*np.cos(Vang[i]-Vang[k]))
+            for ci2,k in enumerate(pq):
+                col=nb+ci2
+                J[ri,col]=(Pc[i]/Vmag[i]+Ybus[i,i].real*Vmag[i]) if i==k else Vmag[i]*(Ybus[i,k].real*np.cos(Vang[i]-Vang[k])+Ybus[i,k].imag*np.sin(Vang[i]-Vang[k]))
+        for ri2,i in enumerate(pq):
+            row=nb+ri2
+            for ci,k in enumerate(ns):
+                J[row,ci]=(Pc[i]-Ybus[i,i].real*Vmag[i]**2) if i==k else -Vmag[i]*Vmag[k]*(Ybus[i,k].real*np.cos(Vang[i]-Vang[k])+Ybus[i,k].imag*np.sin(Vang[i]-Vang[k]))
+            for ci2,k in enumerate(pq):
+                col=nb+ci2
+                J[row,col]=(Qc[i]/Vmag[i]-Ybus[i,i].imag*Vmag[i]) if i==k else Vmag[i]*(Ybus[i,k].real*np.sin(Vang[i]-Vang[k])-Ybus[i,k].imag*np.cos(Vang[i]-Vang[k]))
+        try: dx=np.linalg.solve(J,mm)
+        except: res+="ERROR: Jacobiano singular\n"; break
+        for ri,i in enumerate(ns): Vang[i]+=dx[ri]
+        for ri2,i in enumerate(pq): Vmag[i]+=dx[nb+ri2]*Vmag[i]
+    res+="SOLUCION FINAL:\n"
+    V=Vmag*np.exp(1j*Vang); S=V*np.conj(Ybus@V)
+    for i in range(n):
+        res+=f"  Bus{i+1}: |V|={Vmag[i]:.5f} pu  delta={np.degrees(Vang[i]):+.4f} deg  P={S[i].real:.4f} pu  Q={S[i].imag:.4f} pu\n"
+    res+=f"Perdidas totales = {S.real.sum():.5f} pu"
+    return res
+
 def _calc_flows(v):
-    V1=complex(v['V1_mag']*np.cos(np.radians(v['V1_ang'])),v['V1_mag']*np.sin(np.radians(v['V1_ang'])))
-    V2=complex(v['V2_mag']*np.cos(np.radians(v['V2_ang'])),v['V2_mag']*np.sin(np.radians(v['V2_ang'])))
-    V3=complex(v['V3_mag']*np.cos(np.radians(v['V3_ang'])),v['V3_mag']*np.sin(np.radians(v['V3_ang'])))
-    Y12=complex(0,-v['y12']); Y13=complex(0,-v['y13']); Y23=complex(0,-v['y23'])
-    S12=V1*(V1-V2).conjugate()*(-Y12).conjugate(); S13=V1*(V1-V3).conjugate()*(-Y13).conjugate()
-    S23=V2*(V2-V3).conjugate()*(-Y23).conjugate()
+    def _V(m,a): return m*np.exp(1j*np.radians(a))
+    V1=_V(v['V1_mag'],v['V1_ang']); V2=_V(v['V2_mag'],v['V2_ang']); V3=_V(v['V3_mag'],v['V3_ang'])
+    y12=complex(0,-v['y12']); y13=complex(0,-v['y13']); y23=complex(0,-v['y23'])
+    # Sij = Vi*(Vi-Vj)*·(yij)* (usando admitancia shunt 0)
+    Yij = lambda a,b,y: a*np.conj((a-b)*np.conj(y))  # simplificado: S=V*I* con I=(V-Vj)*y
+    S12=V1*np.conj((V1-V2)*(-y12)); S21=V2*np.conj((V2-V1)*(-y12))
+    S13=V1*np.conj((V1-V3)*(-y13)); S31=V3*np.conj((V3-V1)*(-y13))
+    S23=V2*np.conj((V2-V3)*(-y23)); S32=V3*np.conj((V3-V2)*(-y23))
     sb=v['Sbase']
-    return (f"Flujo P12 = {S12.real*sb:.3f} MW   Q12 = {S12.imag*sb:.3f} MVAR\n"
-            f"Flujo P13 = {S13.real*sb:.3f} MW   Q13 = {S13.imag*sb:.3f} MVAR\n"
-            f"Flujo P23 = {S23.real*sb:.3f} MW   Q23 = {S23.imag*sb:.3f} MVAR\n"
-            f"Perdidas P12+P21 = {(S12+V2*(V2-V1).conjugate()*(-Y12).conjugate()).real*sb:.4f} MW")
+    return (f"Flujo 1->2: P={S12.real*sb:.3f} MW  Q={S12.imag*sb:.3f} MVAR\n"
+            f"Flujo 2->1: P={S21.real*sb:.3f} MW  Q={S21.imag*sb:.3f} MVAR\n"
+            f"Perdidas 1-2: {(S12+S21).real*sb:.4f} MW\n"
+            f"Flujo 1->3: P={S13.real*sb:.3f} MW  Q={S13.imag*sb:.3f} MVAR\n"
+            f"Flujo 3->1: P={S31.real*sb:.3f} MW  Q={S31.imag*sb:.3f} MVAR\n"
+            f"Perdidas 1-3: {(S13+S31).real*sb:.4f} MW\n"
+            f"Flujo 2->3: P={S23.real*sb:.3f} MW  Q={S23.imag*sb:.3f} MVAR\n"
+            f"Flujo 3->2: P={S32.real*sb:.3f} MW  Q={S32.imag*sb:.3f} MVAR\n"
+            f"Perdidas 2-3: {(S23+S32).real*sb:.4f} MW\n"
+            f"PERDIDAS TOTALES: {((S12+S21)+(S13+S31)+(S23+S32)).real*sb:.4f} MW")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1237,7 +1779,8 @@ class WizardDespacho(ModuleWizard):
                     f"dC3/dP = {v['b3']} + {2*v['c3']}*P\n\n"
                     f"Punto minimo si P=0:\n"
                     f"  lam_min arranque G1 = {v['b1']}, G2 = {v['b2']}, G3 = {v['b3']} $/MWh"),
-                "#facc15"),
+                "#facc15",
+                diagram_cls=DiagramDespacho),
             _step_widget(
                 "Lambda Iteration:\n"
                 "  Pi = (lambda - bi) / (2*ci)\n"
@@ -1272,8 +1815,27 @@ class WizardDespacho(ModuleWizard):
                     [v['a1'],v['a2'],v['a3']],[v['P1'],v['P2'],v['P3']],
                     (v['b1']+2*v['c1']*v['P1']+v['b2']+2*v['c2']*v['P2'])/2,
                     v['PD'],[50,40,30],[200,150,250])),
+            _step_widget(
+                "Despacho con Perdidas \u2014 Matriz B de Kron:\n"
+                "  PL = sum(Bii*Pi^2)  dPL/dPi = 2*Bii*Pi\n"
+                "  FPi = 1/(1-dPL/dPi)  (factor penalizacion)\n"
+                "  Cond. optimalidad: (bi+2ci*Pi)*FPi = lambda",
+                "Incluye perdidas en la red mediante la Matriz B de Kron diagonal. "
+                "FPi penaliza los generadores lejanos que causan mayores perdidas.",
+                [("b1","b1","9"),("c1","c1","0.01"),
+                 ("b2","b2","7.5"),("c2","c2","0.012"),
+                 ("b3","b3","8.0"),("c3","c3","0.008"),
+                 ("Pmin1","Pmin1 MW","50"),("Pmax1","Pmax1 MW","200"),
+                 ("Pmin2","Pmin2 MW","40"),("Pmax2","Pmax2 MW","150"),
+                 ("Pmin3","Pmin3 MW","30"),("Pmax3","Pmax3 MW","250"),
+                 ("B11","B11 Kron G1","0.00014"),
+                 ("B22","B22 Kron G2","0.00010"),
+                 ("B33","B33 Kron G3","0.00008"),
+                 ("PD","Demanda PD MW","400")],
+                lambda v: (v, _kron_B_matrix(v)),
+                "#facc15"),
         ]
-        self.step_titles = ["Funciones de Costo","Lambda Iteration","Verificacion y Costo Total"]
+        self.step_titles = ["Funciones de Costo","Lambda Iteration","Verificacion y Costo Total","Despacho con Perdidas (Matriz B)"]
 
 
 def _lambda_iter(v):
@@ -1296,6 +1858,44 @@ def _lambda_iter(v):
 
 
 # ══════════════════════════════════════════════════════════════════
+# TEMA 8b – Despacho con Perdidas (Matriz B de Kron)
+# ══════════════════════════════════════════════════════════════════
+def _kron_B_matrix(v):
+    """Despacho economico con matrix B de Kron (3 generadores)."""
+    b=[v['b1'],v['b2'],v['b3']]; c=[v['c1'],v['c2'],v['c3']]
+    Pmn=[v['Pmin1'],v['Pmin2'],v['Pmin3']]; Pmx=[v['Pmax1'],v['Pmax2'],v['Pmax3']]
+    # Matriz B diagonal simplificada B11, B22, B33 (fuera diagonal=0)
+    B=[v['B11'],v['B22'],v['B33']]
+    PD=v['PD']; lm=sum(b[i]/(2*c[i]) for i in range(3))/3+5
+    res="Condicion optimalidad con perdidas (factores penalizacion):\n"
+    res+="  dCi/dPi * FPi = lambda   FPi=1/(1-dPL/dPi)\n"
+    lam=lm; P=[0.0]*3
+    for it in range(80):
+        # Perdidas PL = sum(Bii*Pi^2)
+        PL=sum(B[i]*P[i]**2 for i in range(3))
+        # dPL/dPi = 2*Bii*Pi   =>  FPi = 1/(1-2*Bii*Pi)
+        Pnew=[]
+        for i in range(3):
+            fp_i=max(1e-6,1-2*B[i]*P[i])
+            Pi=(lam*fp_i-b[i])/(2*c[i])
+            Pi=max(Pmn[i],min(Pmx[i],Pi))
+            Pnew.append(Pi)
+        PL_new=sum(B[i]*Pnew[i]**2 for i in range(3))
+        err=sum(Pnew)-PD-PL_new
+        P=Pnew
+        if abs(err)<0.01: res+=f"Convergencia en {it+1} iter\n"; break
+        lam-=err*0.05
+    PL_final=sum(B[i]*P[i]**2 for i in range(3))
+    res+=f"lambda_opt = {lam:.4f} $/MWh\n"
+    res+=f"Matriz B diagonal: B11={B[0]:.5f}  B22={B[1]:.5f}  B33={B[2]:.5f}\n"
+    for i in range(3):
+        fp_i=max(1e-6,1-2*B[i]*P[i])
+        res+=f"  P{i+1} = {P[i]:.2f} MW   FP{i+1}={1/fp_i:.4f}  dPL/dP{i+1}={2*B[i]*P[i]:.5f}\n"
+    res+=f"Perdidas PL = {PL_final:.4f} MW\n"
+    res+=f"sum(Pi) = {sum(P):.2f} MW  PD+PL = {PD+PL_final:.2f} MW"
+    return res
+
+# ══════════════════════════════════════════════════════════════════
 # TEMA 9 – Teoria de Fallas
 # ══════════════════════════════════════════════════════════════════
 class WizardFallas(ModuleWizard):
@@ -1315,7 +1915,8 @@ class WizardFallas(ModuleWizard):
                     f"Ibase = {v['Sbase']}e6 / (sqrt(3)*{v['Vbase']}e3)\n"
                     f"Ibase = {v['Sbase']*1e6/(np.sqrt(3)*v['Vbase']*1e3):.4f} A\n"
                     f"V_prefalla = {v['Vpf']} pu = {v['Vpf']*v['Vbase']/np.sqrt(3):.4f} kV L-N"),
-                "#ef4444"),
+                "#ef4444",
+                diagram_cls=DiagramFallas),
             _step_widget(
                 "Falla Trifasica simetrica (peor caso):\n"
                 "  Solo red de secuencia positiva\n"
@@ -1360,5 +1961,77 @@ class WizardFallas(ModuleWizard):
                     f"  |If| = {np.sqrt(3)*v['Vpf']/(v['Z1']+v['Z2'])*v['Ibase']:.2f} A rms"),
                 "#ef4444",
                 plot_fn=lambda v: P.plot_fallas(v['Vpf'],v['Z1'],v['Z2'],v['Z0'],v['Ibase'])),
+            # ── PASO 5: Falla Doble Linea-Tierra (DLG) ─────────────────────
+            _step_widget(
+                "Falla Doble Linea-Tierra DLG (B-C a tierra):\n"
+                "  Z1 || (Z2 en serie con Z0)\n"
+                "  Ia1 = Vpf / (Z1 + Z2*Z0/(Z2+Z0))\n"
+                "  Ia2 = -Ia1*Z0/(Z2+Z0)  Ia0 = -Ia1*Z2/(Z2+Z0)",
+                "Falla doble linea-tierra (DLG) fases B y C."
+                " Redes positiva, negativa y cero interconectadas.",
+                [("Vpf","V_prefalla (pu)","1.0"),("Z1","Z1 (pu)","0.1"),
+                 ("Z2","Z2 (pu)","0.1"),("Z0","Z0 (pu)","0.3"),("Ibase","Ibase (A)","502.0")],
+                lambda v: (v, _calc_falla_dlg(v)),
+                "#ef4444"),
+            # ── PASO 6: Voltajes durante la falla ───────────────────────────
+            _step_widget(
+                "Voltajes durante la falla (tension deprimida):\n"
+                "  Va1 = Vpf - Z1*Ia1   (seq positiva)\n"
+                "  Va2 = -Z2*Ia2        (seq negativa)\n"
+                "  Va0 = -Z0*Ia0        (seq cero)\n"
+                "  Va = Va0+Va1+Va2   Vb = Va0+a2*Va1+a*Va2",
+                "Calcula las tensiones de fase durante la falla monofasica.",
+                [("Vpf","V prefalla (pu)","1.0"),("Z1","Z1 pu","0.1"),
+                 ("Z2","Z2 pu","0.1"),("Z0","Z0 pu","0.3")],
+                lambda v: (v, _calc_voltajes_falla(v)),
+                "#ef4444"),
         ]
-        self.step_titles = ["Condicion Pre-Falla","Falla Trifasica 3phi","Falla SLG","Falla Bifasica LL"]
+        self.step_titles = ["Condicion Pre-Falla","Falla 3phi","Falla SLG","Falla LL","Falla DLG","Voltajes de Falla"]
+
+
+def _calc_falla_dlg(v):
+    """Falla doble linea-tierra DLG (fases B-C a tierra)."""
+    Z1=complex(0,v['Z1']); Z2=complex(0,v['Z2']); Z0=complex(0,v['Z0']); Vpf=v['Vpf']
+    Z_par=Z2*Z0/(Z2+Z0)
+    Ia1=Vpf/(Z1+Z_par)
+    Ia2=-Ia1*Z0/(Z2+Z0)
+    Ia0=-Ia1*Z2/(Z2+Z0)
+    a=np.exp(1j*2*np.pi/3)  # operador 120 deg
+    Ia=Ia0+Ia1+Ia2
+    Ib=Ia0+a**2*Ia1+a*Ia2
+    Ic=Ia0+a*Ia1+a**2*Ia2
+    return (f"Falla DLG (B-C a tierra):\n"
+            f"Z_par = Z2*Z0/(Z2+Z0) = j{v['Z2']*v['Z0']/(v['Z2']+v['Z0']):.5f} pu\n"
+            f"━━ CORRIENTES DE SECUENCIA ━━━━━━━━━━━━━━━━━━━\n"
+            f"Ia1 = {Vpf} / (j{v['Z1']}+j{v['Z2']*v['Z0']/(v['Z2']+v['Z0']):.4f})\n"
+            f"  |Ia1| = {abs(Ia1):.5f} pu   ang = {np.degrees(np.angle(Ia1)):.2f} deg\n"
+            f"Ia2 = -Ia1*Z0/(Z2+Z0) =  |Ia2| = {abs(Ia2):.5f} pu\n"
+            f"Ia0 = -Ia1*Z2/(Z2+Z0) =  |Ia0| = {abs(Ia0):.5f} pu\n"
+            f"━━ CORRIENTES DE FASE ━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Ia = Ia0+Ia1+Ia2 = {abs(Ia):.5f} pu (debe ser ~0 para DLG B-C)\n"
+            f"|Ib| = {abs(Ib):.5f} pu   ang = {np.degrees(np.angle(Ib)):.2f} deg\n"
+            f"|Ic| = {abs(Ic):.5f} pu   ang = {np.degrees(np.angle(Ic)):.2f} deg\n"
+            f"━━ CORRIENTE DE FALLA REAL ━━━━━━━━━━━━━━━━━━━\n"
+            f"|Ib| = {abs(Ib)*v['Ibase']:.2f} A  |Ic| = {abs(Ic)*v['Ibase']:.2f} A")
+
+
+def _calc_voltajes_falla(v):
+    """Voltajes de fase durante falla SLG (fase A a tierra)."""
+    Z1=complex(0,v['Z1']); Z2=complex(0,v['Z2']); Z0=complex(0,v['Z0']); Vpf=v['Vpf']
+    Ia1=Vpf/(Z1+Z2+Z0)
+    Ia2=Ia1; Ia0=Ia1
+    a=np.exp(1j*2*np.pi/3)
+    Va1=Vpf-Z1*Ia1; Va2=-Z2*Ia2; Va0=-Z0*Ia0
+    Va=Va0+Va1+Va2
+    Vb=Va0+a**2*Va1+a*Va2
+    Vc=Va0+a*Va1+a**2*Va2
+    return (f"Falla SLG fase A — Voltajes de secuencia:\n"
+            f"Ia1 = {Vpf}/{v['Z1']+v['Z2']+v['Z0']:.3f} = {abs(Ia1):.5f} pu\n"
+            f"Va1 = Vpf - Z1*Ia1 = {abs(Va1):.5f} pu  ∠{np.degrees(np.angle(Va1)):.2f}°\n"
+            f"Va2 = -Z2*Ia2      = {abs(Va2):.5f} pu  ∠{np.degrees(np.angle(Va2)):.2f}°\n"
+            f"Va0 = -Z0*Ia0      = {abs(Va0):.5f} pu  ∠{np.degrees(np.angle(Va0)):.2f}°\n"
+            f"━━ VOLTAJES DE FASE ━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"|Va| = {abs(Va):.5f} pu  (debe ser ~0 en falla SLG)\n"
+            f"|Vb| = {abs(Vb):.5f} pu  ∠{np.degrees(np.angle(Vb)):.2f}°\n"
+            f"|Vc| = {abs(Vc):.5f} pu  ∠{np.degrees(np.angle(Vc)):.2f}°\n"
+            f"Depression de tension en fase A: {(1-abs(Va))*100:.2f}%")

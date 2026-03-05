@@ -42,30 +42,34 @@ THEME = { # color por módulo
 def _styles(accent_hex):
     accent = colors.HexColor(accent_hex)
     s = {}
-    s["title"]  = ParagraphStyle("T",  fontSize=22, textColor=colors.HexColor("#1e3a5f"),
-                                  fontName="Helvetica-Bold", alignment=TA_CENTER, spaceAfter=4)
-    s["sub"]    = ParagraphStyle("SB", fontSize=11, textColor=colors.HexColor("#475569"),
-                                  alignment=TA_CENTER, spaceAfter=3)
-    s["h1"]     = ParagraphStyle("H1", fontSize=15, fontName="Helvetica-Bold",
-                                  textColor=accent, spaceBefore=14, spaceAfter=5)
-    s["h2"]     = ParagraphStyle("H2", fontSize=12, fontName="Helvetica-Bold",
-                                  textColor=colors.HexColor("#1e3a5f"), spaceBefore=8, spaceAfter=3)
-    s["body"]   = ParagraphStyle("B",  fontSize=10, textColor=colors.HexColor("#1e293b"),
-                                  leading=16, spaceAfter=3, alignment=TA_JUSTIFY)
-    s["formula"]= ParagraphStyle("F",  fontSize=10, fontName="Courier-Bold",
+    s["title"]  = ParagraphStyle("T",  fontSize=30, textColor=colors.HexColor("#1e3a5f"),
+                                  fontName="Helvetica-Bold", alignment=TA_CENTER, 
+                                  leading=36, spaceAfter=2)
+    s["sub"]    = ParagraphStyle("SB", fontSize=15, textColor=colors.HexColor("#64748b"),
+                                  alignment=TA_CENTER, leading=18, spaceAfter=2)
+    s["lib"]    = ParagraphStyle("LB", fontSize=14, textColor=colors.HexColor("#94a3b8"),
+                                  alignment=TA_CENTER, leading=18, italic=True)
+    s["h1"]     = ParagraphStyle("H1", fontSize=20, fontName="Helvetica-Bold",
+                                  textColor=accent, spaceBefore=20, spaceAfter=8, 
+                                  leading=24, leftIndent=-10)
+    s["h2"]     = ParagraphStyle("H2", fontSize=16, fontName="Helvetica-Bold",
+                                  textColor=colors.HexColor("#1e3a5f"), spaceBefore=10, spaceAfter=4)
+    s["body"]   = ParagraphStyle("B",  fontSize=14.5, textColor=colors.HexColor("#1e293b"),
+                                  leading=22, spaceAfter=6, alignment=TA_JUSTIFY)
+    s["formula"]= ParagraphStyle("F",  fontSize=15, fontName="Courier-Bold",
                                   textColor=colors.HexColor("#0f4c2a"),
                                   backColor=colors.HexColor("#f0fdf4"),
-                                  leftIndent=20, rightIndent=20, spaceAfter=4,
-                                  leading=16, borderPadding=6)
-    s["code"]   = ParagraphStyle("C",  fontSize=9,  fontName="Courier",
+                                  leftIndent=30, rightIndent=30, spaceBefore=6, spaceAfter=6,
+                                  leading=22, borderPadding=10)
+    s["code"]   = ParagraphStyle("C",  fontSize=13,  fontName="Courier",
                                   textColor=colors.HexColor("#0c4a6e"),
                                   backColor=colors.HexColor("#f0f9ff"),
-                                  leftIndent=16, rightIndent=16, spaceAfter=2,
-                                  leading=14, borderPadding=4)
-    s["warn"]   = ParagraphStyle("W",  fontSize=9,  fontName="Helvetica-Oblique",
+                                  leftIndent=20, rightIndent=20, spaceAfter=4,
+                                  leading=18, borderPadding=8)
+    s["warn"]   = ParagraphStyle("W",  fontSize=13,  fontName="Helvetica-Oblique",
                                   textColor=colors.HexColor("#92400e"),
                                   backColor=colors.HexColor("#fffbeb"),
-                                  leftIndent=16, spaceAfter=4)
+                                  leftIndent=20, spaceAfter=6, borderPadding=6)
     return s
 
 def _hr(accent_hex, thick=1.0):
@@ -92,14 +96,53 @@ def _input_table(inputs: dict):
     return [t, Spacer(1, 8)]
 
 
-# ── Guardar figura matplotlib en buffer ──────────────────────────────────────
 def _fig_to_image(fig, width=16*cm):
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=130, bbox_inches="tight",
-                facecolor=fig.get_facecolor())
+                facecolor=fig.get_facecolor(), transparent=True)
     plt.close(fig)
     buf.seek(0)
-    return Image(buf, width=width, height=width*0.52)
+    # Calcular altura proporcional
+    img = Image(buf)
+    aspect = img.drawHeight / img.drawWidth
+    img.drawWidth = width
+    img.drawHeight = width * aspect
+    return img
+
+def _latex_to_img(formula: str, fontsize=24, color="#1e293b"):
+    """Renderiza una fórmula LaTeX a un objeto Image de ReportLab (Versión XL Mejorada)."""
+    fig = plt.figure(figsize=(8, 1.5), dpi=100)
+    fig.patch.set_alpha(0)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.axis('off')
+    
+    if not (formula.startswith("$") and formula.endswith("$")):
+        formula = f"${formula}$"
+    
+    formula = formula.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    
+    ax.text(0.5, 0.5, formula, color=color, fontsize=fontsize, 
+             ha='center', va='center', fontname='DejaVu Sans')
+    
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight", pad_inches=0.01, transparent=True)
+    plt.close(fig)
+    buf.seek(0)
+    
+    img = Image(buf)
+    # Altura XL
+    h_target = 1.6 * cm * (fontsize/14) 
+    aspect = img.drawWidth / img.drawHeight
+    img.drawHeight = h_target
+    img.drawWidth = h_target * aspect
+    
+    max_w = 16 * cm
+    if img.drawWidth > max_w:
+        img.drawWidth = max_w
+        img.drawHeight = max_w / aspect
+        
+    img.hAlign = 'CENTER'
+    return img
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -327,30 +370,28 @@ THEORY = {
     "Valores por Unidad": {
         "concepto": (
             "El sistema por unidad (p.u.) normaliza todas las magnitudes eléctricas respecto a "
-            "valores base elegidos, de modo que las ecuaciones del sistema tienen la misma forma "
-            "independientemente del nivel de tensión. Esto simplifica el análisis de sistemas "
-            "con múltiples transformadores."
+            "valores base elegidos, de modo que las ecuaciones del sistema tienen la misma forma. "
+            "Esto simplifica el análisis al eliminar el término de la relación de transformación."
         ),
         "formulas": [
-            "V_pu  =  V_real  /  V_base",
-            "S_pu  =  S_real  /  S_base",
-            "I_pu  =  I_real  /  I_base        donde  I_base = S_base / (√3 · V_base)",
-            "Z_pu  =  Z_real  /  Z_base        donde  Z_base = V²_base / S_base",
-            "Z_pu_nuevo = Z_pu_viejo · (S_base_nuevo / S_base_viejo) · (V_base_viejo / V_base_nuevo)²",
+            "V_{pu} = \\frac{V_{real}}{V_{base}}",
+            "S_{pu} = \\frac{S_{real}}{S_{base}}",
+            "I_{base} = \\frac{S_{base}}{\\sqrt{3} \\cdot V_{base}}",
+            "Z_{base} = \\frac{V_{base}^2}{S_{base}}",
+            "Z_{pu}^{new} = Z_{pu}^{old} \\cdot \\left( \\frac{S_{base}^{new}}{S_{base}^{old}} \\right) \\cdot \\left( \\frac{V_{base}^{old}}{V_{base}^{new}} \\right)^2",
         ],
         "fig_fn": lambda inputs: fig_circuit_perunit(),
     },
     "Inductancia de Lineas": {
         "concepto": (
-            "La inductancia de una línea de transmisión trifásica depende de la geometría "
-            "de los conductores (separación y radio). Se utiliza la Distancia Media Geométrica "
-            "GMD para conductores en disposición asimétrica transpuesta."
+            "La inductancia trifásica se basa en el flujo concatenado. Para líneas transpuestas "
+            "se emplea el Radio Medio Geométrico (GMR) y la Distancia Media Geométrica (GMD)."
         ),
         "formulas": [
-            "r' = r · e^(-1/4)   (radio efectivo del conductor macizo)",
-            "GMD = ∛(D₁₂ · D₂₃ · D₃₁)   (Distancia Media Geométrica)",
-            "L = (μ₀ / 2π) · ln(GMD / r')   [H/m]      μ₀ = 4π × 10⁻⁷ H/m",
-            "X_L = 2πf · L   [Ω/m]   →   X_L(km) = X_L × 1000   [Ω/km]",
+            "r' = r \\cdot e^{-1/4}",
+            "GMD = \\sqrt[3]{D_{12} \\cdot D_{23} \\cdot D_{31}}",
+            "L = 2 \\cdot 10^{-7} \\cdot \\ln\\left(\\frac{GMD}{GMR}\\right) \\text{ [H/m]}",
+            "X_L = 2\\pi f L \\cdot 1000 \\text{ [\\Omega/km]}",
         ],
         "fig_fn": lambda inputs: fig_conductores_inductancia(
             inputs.get("r",1.5), inputs.get("D12",2.0),
@@ -359,30 +400,26 @@ THEORY = {
     },
     "Capacidad de Lineas": {
         "concepto": (
-            "La capacitancia distribuida de la línea genera potencia reactiva capacitiva "
-            "a lo largo de la línea. En líneas largas a carga ligera puede elevar la tensión "
-            "en el extremo de recepción (efecto Ferranti)."
+            "La capacitancia de la línea surge del campo eléctrico entre conductores. "
+            "Produce una corriente de carga que puede ser significativa en líneas de alta tensión."
         ),
         "formulas": [
-            "C = 2πε₀ / ln(GMD/r)   [F/m]      ε₀ = 8.854 × 10⁻¹² F/m",
-            "B_C = ωC = 2πfC   [S/m]   (susceptancia capacitiva)",
-            "Q_C = V² · B_C   [VAR/m]",
-            "Q_C_total (3φ) = 3 · V²_LN · B_C · ℓ   [VAR]",
+            "C = \\frac{2\\pi \\epsilon_0}{\\ln(GMD/r)} \\text{ [F/m]}",
+            "B_C = 2\\pi f C \\text{ [S/m]}",
+            "Q_C = 3 \\cdot V_{LN}^2 \\cdot B_C \\cdot \\ell \\text{ [VAR]}",
         ],
         "fig_fn": None,
     },
     "Lineas de Transmision": {
         "concepto": (
-            "Los modelos de línea se clasifican según su longitud: corta (<80 km) usa solo "
-            "impedancia serie; media (80-250 km) usa modelo π o T con admitancias shunt; "
-            "larga (>250 km) usa el modelo exacto con parámetros distribuidos."
+            "Se aplican modelos circuitales (Corta, Pi, Larga) según la longitud. "
+            "El modelo Pi es el más común para líneas de longitud media."
         ),
         "formulas": [
-            "Modelo Corta:  V_S = V_R + Z · I_R          (Z = R + jX total)",
-            "Modelo Pi:     V_S = A · V_R + B · I_R      A = 1 + ZY/2,  B = Z",
-            "               I_S = C · V_R + D · I_R      C = Y(1+ZY/4), D = A",
-            "RV% = (|V_S| - |V_R|) / |V_R| × 100%",
-            "η%  = P_R / P_S × 100%                      (eficiencia de transmisión)",
+            "V_S = V_R + Z \\cdot I_R \\text{ (Línea corta)}",
+            "V_S = A \\cdot V_R + B \\cdot I_R \\text{ (Modelo } \\pi \\text{)}",
+            "A = 1 + \\frac{ZY}{2} , \\quad B = Z , \\quad C = Y(1 + \\frac{ZY}{4})",
+            "RV\\% = \\frac{|V_S| - |V_R|}{|V_R|} \\cdot 100 \\%",
         ],
         "fig_fn": lambda inputs: fig_linea_fasor(
             inputs.get("R",5.0), inputs.get("X",25.0),
@@ -391,32 +428,25 @@ THEORY = {
     },
     "Constantes Generalizadas ABCD": {
         "concepto": (
-            "Las constantes generalizadas ABCD (o parámetros de red de 2 puertos) describen "
-            "cualquier red de 4 terminales lineal. Para una red recíproca se cumple AD - BC = 1."
+            "Representan el sistema como un cuadripolo lineal. Permiten el modelado en cascada "
+            "de transformadores, líneas y compensadores mediante multiplicación de matrices."
         ),
         "formulas": [
-            "│V_S│   │A  B│ │V_R│",
-            "│I_S│ = │C  D│ │I_R│",
-            "Línea corta:  A=D=1,  B=Z,  C=0",
-            "Línea media π:  A = D = 1 + ZY/2",
-            "                B = Z",
-            "                C = Y(1 + ZY/4)",
-            "Condición de reciprocidad:  A·D - B·C = 1",
+            "\\begin{bmatrix} V_S \\\\ I_S \\end{bmatrix} = \\begin{bmatrix} A & B \\\\ C & D \\end{bmatrix} \\begin{bmatrix} V_R \\\\ I_R \\end{bmatrix}",
+            "AD - BC = 1 \\text{ (Condición de reciprocidad)}",
+            "A = \\cosh(\\gamma \\ell) , \\quad B = Z_c \\sinh(\\gamma \\ell)",
         ],
         "fig_fn": None,
     },
     "Diagramas Circulares de Potencia": {
         "concepto": (
-            "El diagrama circular de potencia permite determinar gráficamente la potencia "
-            "activa y reactiva máxima transferible, el factor de potencia y las limitaciones "
-            "de operación estable del sistema."
+            "Herramienta gráfica que delimita la capacidad de transferencia de potencia "
+            "activa y reactiva entre dos barras, basada en las constantes ABCD."
         ),
         "formulas": [
-            "S_R = P_R + jQ_R     (potencia compleja en recepción)",
-            "Centro O_R: |O_R| = |A|·|V_R|² / |B|    con ángulo (β - α - 90°)",
-            "Radio R_R  = |V_S|·|V_R| / |B|",
-            "P_R(δ) = R_R·sin(δ + β - 90°) + |O_R|·sin(β - α - 90°)",
-            "P_R_max ≈ R_R - |O_R|   (cuando |A|≈1, pérdidas despreciables)",
+            "Centro_{R} = - \\frac{A^* B}{B^2} V_R^2",
+            "Radio_{R} = \\frac{|V_S| \\cdot |V_R|}{|B|}",
+            "P_R + jQ_R = \\frac{V_S \\cdot V_R^*}{B^*} - \\frac{A \\cdot V_R^2}{B}",
         ],
         "fig_fn": lambda inputs: fig_circulo_pq(
             inputs.get("VS",132.0), inputs.get("VR",115.0),
@@ -426,35 +456,29 @@ THEORY = {
     },
     "Flujo de Potencia": {
         "concepto": (
-            "El flujo de potencia (load flow) determina el estado de operación en régimen "
-            "permanente de una red eléctrica. El método de Gauss-Seidel calcula iterativamente "
-            "los voltajes nodales hasta convergencia."
+            "Determina el estado estacionario de la red. Busca tensiones y ángulos nodales "
+            "que satisfagan el balance de potencia activa y reactiva en cada barra."
         ),
         "formulas": [
-            "Ecuación Ybus:  I = Ybus · V",
-            "Potencia inyectada:  S_i = V_i · I_i* = V_i · Σ_j (Y_ij · V_j)*",
-            "Gauss-Seidel:  V_i(k+1) = [1/Y_ii] · [(P_i - jQ_i)/V_i*(k) - Σ_{j≠i} Y_ij·V_j]",
-            "Convergencia:  max|V_i(k+1) - V_i(k)| < ε",
-            "Flujo de rama:  S_ij = V_i · (V_i - V_j)* · Y_ij*",
+            r"I_{bus} = [Y_{bus}] \cdot V_{bus}",
+            r"S_i = V_i \left( \sum_{j=1}^n Y_{ij} V_j \right)^* = P_i + jQ_i",
+            r"V_i^{(k+1)} = \frac{1}{Y_{ii}} \left[ \frac{P_i - jQ_i}{V_i^{*(k)}} - \sum_{j \neq i} Y_{ij} V_j^{(k)} \right]",
+            r"\Delta V_{max} = \max |V_i^{(k+1)} - V_i^{(k)}| < \epsilon",
         ],
         "fig_fn": lambda inputs: fig_flujo_barras(
             [1.05,inputs.get("V1",1.05),0.982,0.975],
             [0,-1.5,-4.5,-7.2],["Bus1\nSlack","Bus2","Bus3","Bus4"],[0.1,0.05,0.03,0.01,0.004]
         ) if inputs else None,
     },
-    "Despacho Economico de Centrales Termicas": {
+    "Despacho Econico de Centrales Termicas": {
         "concepto": (
-            "El despacho económico óptimo determina cómo distribuir la carga total del sistema "
-            "entre las unidades generadoras disponibles minimizando el costo total de producción, "
-            "respetando los límites de potencia de cada unidad."
+            "Distribuye la demanda total entre generadores térmicos para minimizar el costo "
+            "total operativo, igualando los costos incrementales de todas las unidades."
         ),
         "formulas": [
-            "Función de costo:  C_i(P_i) = a_i + b_i·P_i + c_i·P_i²   [$/h]",
-            "Costo incremental: dC_i/dP_i = b_i + 2·c_i·P_i   [$/MWh]",
-            "Condición óptima:  dC₁/dP₁ = dC₂/dP₂ = ... = dC_n/dP_n = λ",
-            "Despacho óptimo:  P_i_opt = (λ - b_i) / (2·c_i)   (sin restricciones)",
-            "Restricción:  Σ P_i = P_D   (balance de potencia)",
-            "Costo total mínimo:  C_T = Σ C_i(P_i_opt)   [$/h]",
+            "C_i(P_i) = a_i + b_i P_i + c_i P_i^2 \\text{ [$/h]}",
+            "\\frac{dC_i}{dP_i} = b_i + 2 c_i P_i = \\lambda \\text{ [$/MWh]}",
+            "\\sum_{i=1}^n P_i = P_D + P_L \\text{ (Balance de potencia)}",
         ],
         "fig_fn": lambda inputs: fig_despacho(
             [inputs.get("b1",9),inputs.get("b2",7.5),inputs.get("b3",8)],
@@ -467,18 +491,13 @@ THEORY = {
     },
     "Teoria de Fallas": {
         "concepto": (
-            "El análisis de fallas asimétricas usa el método de componentes simétricas de Fortescue, "
-            "que descompone el sistema trifásico desequilibrado en tres sistemas simétricos: "
-            "secuencia positiva (+), negativa (-) y cero (0)."
+            "Emplea componentes simétricas para analizar fallas asimétricas. Descompone "
+            "el sistema en redes de secuencia positiva, negativa y cero."
         ),
         "formulas": [
-            "Secuencia + (positiva):  circuito normal del sistema",
-            "Secuencia - (negativa):  igual topología pero tensiones inversas",
-            "Secuencia 0 (cero):      corrientes iguales en las tres fases",
-            "Falla 3φ:  I_a1 = V_pf / Z₁                          (sólo red +)",
-            "Falla SLG: I_a1 = V_pf / (Z₁+Z₂+Z₀)   I_a = 3·I_a1  (redes en serie)",
-            "Falla LL:  I_a1 = V_pf / (Z₁+Z₂)   |I_b|=|I_c|=√3·|I_a1| (redes en paralelo Z₂)",
-            "Falla DLG: Z₂||Z₀ = Z₂·Z₀/(Z₂+Z₀)   I_a1 = V_pf/(Z₁+Z₂||Z₀)",
+            "I_f = \\frac{V_{pf}}{Z_1 + Z_2 + Z_0} \\cdot 3 \\text{ (Falla SLG)}",
+            "I_f = \\frac{\\sqrt{3} V_{pf}}{Z_1 + Z_2} \\text{ (Falla Línea-Línea)}",
+            "I_f = \\frac{V_{pf}}{Z_1} \\text{ (Falla Trifásica)}",
         ],
         "fig_fn": lambda inputs: fig_fallas(
             inputs.get("Vpf",1.0), inputs.get("Z1",0.1),
@@ -506,21 +525,26 @@ def generate_detailed_pdf(filename: str, module_name: str, steps_data: list):
     story = []
 
     # ── PORTADA ──────────────────────────────────────────────────────────
-    story.append(Spacer(1, 1.0*cm))
-    story.append(_hr(accent_hex, 3))
+    # ── PORTADA ──────────────────────────────────────────────────────────
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(_hr(accent_hex, 3.5))
+    story.append(Spacer(1, 4))
     story.append(Paragraph("⚡  POWER ANALYZER PRO", s["title"]))
-    story.append(Paragraph("Análisis de Sistemas de Potencia", s["sub"]))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("Sistemas de Potencia y Modelado Matemático", s["sub"]))
+    story.append(Spacer(1, 4))
     story.append(Paragraph(
-        "Libro de Referencia: <i>Análisis de Sistemas de Potencia — Teoría y Problemas Resueltos</i>",
-        s["sub"]))
-    story.append(Paragraph("Rafael Pumacayo C. &amp; Rubén Romero L.", s["sub"]))
-    story.append(_hr(accent_hex, 3))
-    story.append(Spacer(1, 0.5*cm))
-    story.append(Paragraph(f"MÓDULO: {module_name.upper()}", s["h1"]))
+        "Referencia: <i>Análisis de Sistemas de Potencia — Teoría y Problemas Resueltos</i>",
+        s["lib"]))
+    story.append(Paragraph("Autores: Rafael Pumacayo C. &amp; Rubén Romero L.", s["lib"]))
+    story.append(Spacer(1, 2))
+    story.append(_hr(accent_hex, 3.5))
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(Paragraph(f"INFORME DE ANÁLISIS: {module_name.upper()}", s["h1"]))
     story.append(Paragraph(
-        f"Fecha y hora del análisis: <b>{datetime.datetime.now().strftime('%d/%m/%Y  %H:%M:%S')}</b>",
+        f"Fecha del reporte: <b>{datetime.datetime.now().strftime('%A, %d de %B de %Y  |  %H:%M')}</b>",
         s["sub"]))
-    story.append(Spacer(1, 0.4*cm))
+    story.append(Spacer(1, 0.6 * cm))
 
     # ── MARCO TEÓRICO ─────────────────────────────────────────────────────
     theory = THEORY.get(module_name, {})
@@ -531,15 +555,20 @@ def generate_detailed_pdf(filename: str, module_name: str, steps_data: list):
     story.append(Spacer(1, 0.3*cm))
 
     if theory.get("formulas"):
-        story.append(Paragraph("Fórmulas Fundamentales:", s["h2"]))
+        story.append(Paragraph("Fórmulas Fundamentales del Método", s["h2"]))
+        story.append(Spacer(1, 3)) 
         for f in theory["formulas"]:
-            story.append(Paragraph(f, s["formula"]))
-    story.append(Spacer(1, 0.3*cm))
+            try:
+                story.append(_latex_to_img(f, fontsize=24, color="#0f4c2a"))
+                story.append(Spacer(1, 2)) # Espacio reducido
+            except:
+                story.append(Paragraph(f, s["formula"]))
+    story.append(Spacer(1, 0.4*cm))
 
     # ── DIAGRAMA / CIRCUITO DEL MÓDULO ────────────────────────────────────
     fig_fn = theory.get("fig_fn")
     if fig_fn:
-        story.append(Paragraph("Esquema del Circuito / Diagrama del Módulo:", s["h2"]))
+        story.append(Paragraph("Esquema del Circuito / Diagrama del Módulo", s["h2"]))
         try:
             all_inputs = {}
             for sd in steps_data:
@@ -569,11 +598,11 @@ def generate_detailed_pdf(filename: str, module_name: str, steps_data: list):
 
         # Tabla de datos de entrada
         if step.get("inputs"):
-            story.append(Paragraph("Datos de entrada del paso:", s["h2"]))
+            story.append(Paragraph("Datos de entrada del paso", s["h2"]))
             story += _input_table(step["inputs"])
 
         # Desarrollo matemático
-        story.append(Paragraph("Desarrollo y cálculos:", s["h2"]))
+        story.append(Paragraph("Desarrollo y cálculos", s["h2"]))
         result_text = step.get("result","")
         for line in result_text.split("\n"):
             line = line.strip()
