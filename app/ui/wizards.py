@@ -689,8 +689,19 @@ class WizardPerUnit(ModuleWizard):
                  ("grupo","Grupo vectorial # (0,1,5,6,11)","1")],
                 lambda v: (v, _calc_grupo_vectorial(v)),
                 "#38bdf8"),
+            _step_widget(
+                "Transformador de 3 Devanados (Circuito Estrella):\n"
+                "  Zp = 0.5 * (Zps + Zpt - Zst)\n"
+                "  Zs = 0.5 * (Zps + Zst - Zpt)\n"
+                "  Zt = 0.5 * (Zpt + Zst - Zps)",
+                "Calcula las impedancias del modelo en estrella (Y) de un trafo de 3 devanados.",
+                [("Zps","Z primario-secundario (pu)","0.12"),
+                 ("Zpt","Z primario-terciario (pu)","0.20"),
+                 ("Zst","Z secundario-terciario (pu)","0.15")],
+                lambda v: (v, _calc_trafo_3w(v)),
+                "#38bdf8"),
 ]
-        self.step_titles = ["Definir Bases","Convertir a p.u.","Cambio de Base","Grupos Vectoriales Trafo"]
+        self.step_titles = ["Definir Bases","Convertir a p.u.","Cambio de Base","Grupos Vectoriales Trafo","Trafo 3 Devanados"]
 
 
 def _calc_grupo_vectorial(v):
@@ -721,6 +732,26 @@ def _calc_grupo_vectorial(v):
             f"Nota: En sistemas con trafo Yd1, la V secundaria\n"
             f"  ATRASA 30° respecto a la primaria.\n"
             f"  En Yd11 ADELANTA 30°. Yd5 ATRASA 150°.")
+
+
+def _calc_trafo_3w(v):
+    """Modelo de 3 devanados (Estrella equivalente)."""
+    zps=v['Zps']; zpt=v['Zpt']; zst=v['Zst']
+    zp = 0.5 * (zps + zpt - zst)
+    zs = 0.5 * (zps + zst - zpt)
+    zt = 0.5 * (zpt + zst - zps)
+    return (f"━━ MODELO TRAFO 3 DEVANADOS (Y) ━━━━━━━━━━━━━━\n"
+            f"Datos medidos (en una misma base):\n"
+            f"  Zps = {zps:.4f} pu  |  Zpt = {zpt:.4f} pu  |  Zst = {zst:.4f} pu\n\n"
+            f"Cálculo de impedancias equivalentes (Pasos):\n"
+            f"  Zp = 0.5 * ({zps} + {zpt} - {zst}) = {zp:.5f} pu\n"
+            f"  Zs = 0.5 * ({zps} + {zst} - {zpt}) = {zs:.5f} pu\n"
+            f"  Zt = 0.5 * ({zpt} + {zst} - {zps}) = {zt:.5f} pu\n\n"
+            f"EQUIVALENTE EN ESTRELLA:\n"
+            f"      (P) o──[Zp={zp:.4f}]──┐\n"
+            f"                            |──o Neutro Ficticio\n"
+            f"      (S) o──[Zs={zs:.4f}]──┘\n"
+            f"      (T) o──[Zt={zt:.4f}]──┘")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1484,17 +1515,20 @@ class WizardABCD(ModuleWizard):
                 "#f472b6",
                 diagram_cls=DiagramABCD),
             _step_widget(
-                "Aplicar ABCD para encontrar VS e IS:\n"
-                "  VS = A*VR + B*IR\n"
-                "  IS = C*VR + D*IR",
-                "Aplica las constantes para determinar voltaje y corriente en el extremo envio.",
-                [("A_real","Re(A)","0.996"),("A_imag","Im(A)","0.0001"),
-                 ("B_real","Re(B) Ohm","5"),("B_imag","Im(B) Ohm","30"),
-                 ("VR","VR L-L (kV)","115"),("IR","IR (A)","200"),("fp","F.P.","0.85")],
-                lambda v: (v, _apply_abcd(v)),
+                "Linea Larga (Modelado Exacto):\n"
+                "  A = D = cosh(gamma * L)\n"
+                "  B = Zc * sinh(gamma * L)\n"
+                "  C = (1/Zc) * sinh(gamma * L)\n"
+                "  gamma = sqrt(z*y) , Zc = sqrt(z/y)",
+                "Calcula constantes ABCD usando funciones hiperbolicas para lineas largas.",
+                [("r_km","r por unidad long (Ohm/km)","0.1"),
+                 ("x_km","x por unidad long (Ohm/km)","0.4"),
+                 ("bc_km","bc por unidad long (S/km)","3e-6"),
+                 ("length","Longitud total L (km)","300")],
+                lambda v: (v, _calc_abcd_long(v)),
                 "#f472b6"),
         ]
-        self.step_titles = ["Calcular Constantes ABCD","Aplicar ABCD"]
+        self.step_titles = ["Calcular Constantes ABCD","Aplicar ABCD","Modelo Linea Larga"]
 
 
 def _calc_abcd(v):
@@ -1510,11 +1544,35 @@ def _apply_abcd(v):
     A=complex(v['A_real'],v['A_imag']); B=complex(v['B_real'],v['B_imag'])
     phi=np.arccos(v['fp']); VRln=v['VR']*1e3/np.sqrt(3)
     IR=complex(v['IR']*v['fp'],-v['IR']*np.sin(phi)); VR_f=complex(VRln,0)
-    VS=A*VR_f+B*IR
+    VS=A*VR_f+B*IR; IS=complex(0,0)  # C no se dio, asumimos AD-BC=1 => C=(AD-1)/B
+    if abs(B)>1e-9: C=(A*A-1)/B; IS=C*VR_f+A*IR
     return (f"VS = A*VR + B*IR\n"
             f"VS = ({A.real:.4f}+j{A.imag:.4f})*{VRln:.1f} + ({B.real:.2f}+j{B.imag:.2f})*({IR.real:.1f}+j{IR.imag:.1f})\n"
             f"VS = {VS.real:.2f}{VS.imag:+.2f}j V L-N\n"
             f"|VS| = {abs(VS):.2f} V = {abs(VS)*np.sqrt(3)/1e3:.5f} kV L-L\nAngulo = {np.degrees(np.angle(VS)):.4f} deg")
+
+def _calc_abcd_long(v):
+    """Calculo de ABCD para linea larga (hiperbolico)."""
+    z = complex(v['r_km'], v['x_km'])
+    y = complex(0, v['bc_km'])
+    L = v['length']
+    gamma = np.sqrt(z*y)
+    Zc = np.sqrt(z/y)
+    theta = gamma * L
+    A = np.cosh(theta)
+    B = Zc * np.sinh(theta)
+    C = (1/Zc) * np.sinh(theta)
+    return (f"━━ PARAMETROS LINEA LARGA ━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"z = {z.real:.4f}+j{z.imag:.4f} Ω/km\n"
+            f"y = j{y.imag:.8f} S/km   L = {L} km\n"
+            f"gamma = sqrt(z*y) = {gamma.real:.6f}{gamma.imag:+.6f}j\n"
+            f"Zc = sqrt(z/y) = {Zc.real:.4f}{Zc.imag:+.4f}j Ω\n"
+            f"theta = gamma*L = {theta.real:.4f}{theta.imag:+.4f}j\n"
+            f"━━ CONSTANTES ABCD HIPERBOLICAS ━━━━━━━━━━━━━━━\n"
+            f"A = cosh(theta) = {A.real:.8f}{A.imag:+.8f}j\n"
+            f"B = Zc*sinh(theta) = {B.real:.4f}{B.imag:+.4f}j Ω\n"
+            f"C = (1/Zc)*sinh(theta) = {C.real:.10f}{C.imag:+.10f}j S\n"
+            f"D = A = {A.real:.8f}{A.imag:+.8f}j")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1634,8 +1692,25 @@ class WizardFlujoPotencia(ModuleWizard):
                  ("Sbase","Sbase (MVA)","100")],
                 lambda v: (v, _calc_flows(v)),
                 "#22d3ee"),
+            _step_widget(
+                "Construccion de Zbus (Matriz de Impedancia):\n"
+                "  Zbus = inv(Ybus)\n"
+                "  Zii: Impedancia de punto. Zij: impedancia de transferencia.",
+                "Invierte la matriz Ybus para obtener la matriz Zbus, fundamental para analisis de fallas.",
+                [("Yb_mag","Magnitudes Yij (filas sep ; comas)","18,10,8;10,22,12;8,12,20")],
+                lambda v: (v, _build_zbus(v)),
+                "#22d3ee"),
+            _step_widget(
+                "Transformador con Tap (Relacion fuera de la nominal):\n"
+                "  Y_bus modificado por tap a:1 en el lado i (primario).\n"
+                "  Yii = y/a^2  Yjj = y  Yij = Yji = -y/a",
+                "Modelado de transformador con tap dinámico para control de voltaje.",
+                [("y_trafo","Admitancia del trafo y (pu)","20"),
+                 ("tap_a","Relación de vueltas a (pu)","1.05")],
+                lambda v: (v, _calc_tap_trafo(v)),
+                "#22d3ee"),
         ]
-        self.step_titles = ["Formar Ybus","Iteracion Gauss-Seidel","Newton-Raphson N-barras","Flujos en las Ramas"]
+        self.step_titles = ["Formar Ybus","Iteracion Gauss-Seidel","Newton-Raphson N-barras","Flujos en las Ramas","Zbus de la Red","Transformador con Tap"]
 
 
 def _build_ybus(v):
@@ -1706,32 +1781,51 @@ def _newton_raphson_nbus(v):
         dP=np.array([Pesp[i]-Pc[i] for i in ns])
         dQ=np.array([Qesp[i]-Qc[i] for i in pq])
         mm=np.concatenate([dP,dQ]); err=np.max(np.abs(mm))
-        res+=f" Iter {it+1:2d}: |mis|={err:.4e}\n"
-        if err<tol: res+=f"CONVERGENCIA en {it+1} iters\n"; break
+        
+        res += f"━ ITERACIÓN {it+1} ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        res += f"  Vector de Desajuste (Mismatches ΔP, ΔQ):\n"
+        res += f"  Δx = [" + ", ".join([f"{v:.4f}" for v in mm]) + "]\n"
+        res += f"  Error Máximo |Δ| = {err:.6e}\n"
+        
+        if err<tol: 
+            res+=f"✅ CONVERGENCIA lograda en {it+1} iteraciones\n"; 
+            break
+            
         nb=len(ns); nq=len(pq)
         J=np.zeros((nb+nq,nb+nq))
         for ri,i in enumerate(ns):
             for ci,k in enumerate(ns):
+                # H_ik = dPi/d_delta_k
                 J[ri,ci]=(-Qc[i]-Ybus[i,i].imag*Vmag[i]**2) if i==k else Vmag[i]*Vmag[k]*(Ybus[i,k].real*np.sin(Vang[i]-Vang[k])-Ybus[i,k].imag*np.cos(Vang[i]-Vang[k]))
             for ci2,k in enumerate(pq):
                 col=nb+ci2
+                # N_ik = dPi/d|Vk| * |Vk|
                 J[ri,col]=(Pc[i]/Vmag[i]+Ybus[i,i].real*Vmag[i]) if i==k else Vmag[i]*(Ybus[i,k].real*np.cos(Vang[i]-Vang[k])+Ybus[i,k].imag*np.sin(Vang[i]-Vang[k]))
         for ri2,i in enumerate(pq):
             row=nb+ri2
             for ci,k in enumerate(ns):
+                # M_ik = dQi/d_delta_k
                 J[row,ci]=(Pc[i]-Ybus[i,i].real*Vmag[i]**2) if i==k else -Vmag[i]*Vmag[k]*(Ybus[i,k].real*np.cos(Vang[i]-Vang[k])+Ybus[i,k].imag*np.sin(Vang[i]-Vang[k]))
             for ci2,k in enumerate(pq):
                 col=nb+ci2
+                # L_ik = dQi/d|Vk| * |Vk|
                 J[row,col]=(Qc[i]/Vmag[i]-Ybus[i,i].imag*Vmag[i]) if i==k else Vmag[i]*(Ybus[i,k].real*np.sin(Vang[i]-Vang[k])-Ybus[i,k].imag*np.cos(Vang[i]-Vang[k]))
+        
+        if it == 0 or it == mx-1:
+            res += f"  Matriz Jacobiana [J] calculada:\n"
+            for row in J:
+                res += "  [" + "  ".join([f"{v:8.4f}" for v in row]) + "]\n"
+
         try: dx=np.linalg.solve(J,mm)
-        except: res+="ERROR: Jacobiano singular\n"; break
+        except: res+="❌ ERROR: Jacobiano singular o mal condicionado\n"; break
         for ri,i in enumerate(ns): Vang[i]+=dx[ri]
         for ri2,i in enumerate(pq): Vmag[i]+=dx[nb+ri2]*Vmag[i]
-    res+="SOLUCION FINAL:\n"
+        
+    res+="\n━━ SOLUCION FINAL ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
     V=Vmag*np.exp(1j*Vang); S=V*np.conj(Ybus@V)
     for i in range(n):
-        res+=f"  Bus{i+1}: |V|={Vmag[i]:.5f} pu  delta={np.degrees(Vang[i]):+.4f} deg  P={S[i].real:.4f} pu  Q={S[i].imag:.4f} pu\n"
-    res+=f"Perdidas totales = {S.real.sum():.5f} pu"
+        res+=f"  Barra {i+1}: |V|={Vmag[i]:.5f} pu  δ={np.degrees(Vang[i]):+.4f}°  P={S[i].real:.4f} pu  Q={S[i].imag:.4f} pu\n"
+    res+=f"Perdidas totales del sistema = {S.real.sum():.5f} pu"
     return res
 
 def _calc_flows(v):
@@ -1754,6 +1848,47 @@ def _calc_flows(v):
             f"Flujo 3->2: P={S32.real*sb:.3f} MW  Q={S32.imag*sb:.3f} MVAR\n"
             f"Perdidas 2-3: {(S23+S32).real*sb:.4f} MW\n"
             f"PERDIDAS TOTALES: {((S12+S21)+(S13+S31)+(S23+S32)).real*sb:.4f} MW")
+
+
+def _build_zbus(v):
+    """Calcula Zbus invirtiendo Ybus."""
+    try:
+        rows = v['Yb_mag'].split(";")
+        data = [[float(x) for x in r.split(",")] for r in rows]
+        Y = np.array(data)
+        # Asumimos puramente reactivo (negativo imaginario) para el ejemplo
+        Y_c = Y * 1j 
+        Z = np.linalg.inv(Y_c)
+        res = "Matriz Ybus (Imaginaria):\n"
+        for r in Y: res += "  [" + " ".join([f"{x:6.2f}j" for x in r]) + "]\n"
+        res += "\nMatriz Zbus = inv(Ybus):\n"
+        for r in Z:
+            res += "  [" + " ".join([f"{x.imag:8.5f}j" for x in r]) + "]\n"
+        res += "\nNota: Zii es la impedancia Thevenin vista desde la barra i."
+        return res
+    except Exception as e:
+        return f"Error en matriz: {e}. Use formato '1,2;3,4'"
+
+
+def _calc_tap_trafo(v):
+    """Modelo de transformador con tap (relación fuera de la nominal)."""
+    y = complex(0, -v['y_trafo'])
+    a = v['tap_a']
+    # Modelo Pi equivalente del trafo con tap a:1
+    Yii = y / (a**2)
+    Yjj = y
+    Yij = -y / a
+    return (f"━━ TRANSFORMADOR CON TAP {a}:1 ━━━━━━━━━━━━━━━━\n"
+            f"Admitancia serie: y = {y.imag:+.4f}j pu\n"
+            f"Tap a = {a:.4f} pu\n\n"
+            f"Cálculo de elementos de la matriz Ybus:\n"
+            f"  Yii (lado tap) = y / a^2 = {y.imag:+.4f}j / {a**2:.4f} = {Yii.imag:+.5f}j pu\n"
+            f"  Yjj (lado 1)   = y = {Yjj.imag:+.5f}j pu\n"
+            f"  Yij = Yji = -y / a = {-y.imag:+.4f}j / {a:.4f} = {Yij.imag:+.5f}j pu\n\n"
+            f"Módelo π Equivalente:\n"
+            f"  Rama Serie = -Yij = {(-Yij).imag:+.5f}j pu\n"
+            f"  Shunt i = Yii + Yij = {Yii.imag:+.5f}j {Yij.imag:+.5f}j = {(Yii+Yij).imag:+.5f}j pu\n"
+            f"  Shunt j = Yjj + Yij = {Yjj.imag:+.5f}j {Yij.imag:+.5f}j = {(Yjj+Yij).imag:+.5f}j pu")
 
 
 # ══════════════════════════════════════════════════════════════════

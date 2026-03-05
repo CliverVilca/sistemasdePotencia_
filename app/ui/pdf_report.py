@@ -3,7 +3,7 @@ pdf_report.py
 Generador de reporte PDF académico detallado para cada módulo Pumacayo.
 Incluye: desarrollo matemático explícito, fórmulas, gráficas, circuitos, tablas.
 """
-import os, io, datetime, tempfile
+import os, io, datetime, tempfile, re
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")               # sin ventana, genera imágenes en memoria
@@ -376,9 +376,9 @@ THEORY = {
         "formulas": [
             "V_{pu} = \\frac{V_{real}}{V_{base}}",
             "S_{pu} = \\frac{S_{real}}{S_{base}}",
-            "I_{base} = \\frac{S_{base}}{\\sqrt{3} \\cdot V_{base}}",
             "Z_{base} = \\frac{V_{base}^2}{S_{base}}",
-            "Z_{pu}^{new} = Z_{pu}^{old} \\cdot \\left( \\frac{S_{base}^{new}}{S_{base}^{old}} \\right) \\cdot \\left( \\frac{V_{base}^{old}}{V_{base}^{new}} \\right)^2",
+            "Z_{pu}^{new} = Z_{pu}^{old} \\cdot \\frac{S_{new}}{S_{old}} \\cdot \\left( \\frac{V_{old}}{V_{new}} \\right)^2",
+            "Z_{p,s,t} = 0.5 (Z_{ij} + Z_{ik} - Z_{jk}) \\text{ (3 Devanados)}",
         ],
         "fig_fn": lambda inputs: fig_circuit_perunit(),
     },
@@ -413,16 +413,18 @@ THEORY = {
     "Lineas de Transmision": {
         "concepto": (
             "Se aplican modelos circuitales (Corta, Pi, Larga) según la longitud. "
-            "El modelo Pi es el más común para líneas de longitud media."
+            "El modelo Pi es el más común para líneas de longitud media, mientras que para líneas "
+            "largas (>240 km) se utilizan funciones hiperbólicas para capturar la distribución de parámetros."
         ),
         "formulas": [
-            "V_S = V_R + Z \\cdot I_R \\text{ (Línea corta)}",
-            "V_S = A \\cdot V_R + B \\cdot I_R \\text{ (Modelo } \\pi \\text{)}",
-            "A = 1 + \\frac{ZY}{2} , \\quad B = Z , \\quad C = Y(1 + \\frac{ZY}{4})",
-            "RV\\% = \\frac{|V_S| - |V_R|}{|V_R|} \\cdot 100 \\%",
+            "V_S = A \\\\cdot V_R + B \\\\cdot I_R",
+            "A = \\\\cosh(\\\\gamma \\\\ell) , \\\\quad B = Z_c \\\\sinh(\\\\gamma \\\\ell) \\\\text{ (Línea Larga)}",
+            "\\\\gamma = \\\\sqrt{z \\\\cdot y} , \\\\quad Z_c = \\\\sqrt{z/y}",
+            "RV\\\\% = \\\\frac{|V_S|/|A| - |V_R|}{|V_R|} \\\\cdot 100 \\\\%",
         ],
         "fig_fn": lambda inputs: fig_linea_fasor(
-            inputs.get("R",5.0), inputs.get("X",25.0),
+            inputs.get("r_km", 0.1) * inputs.get("length", 300) if "r_km" in inputs else inputs.get("R",5.0),
+            inputs.get("x_km", 0.4) * inputs.get("length", 300) if "x_km" in inputs else inputs.get("X",25.0),
             inputs.get("VR",115.0), inputs.get("IR",200.0), inputs.get("fp",0.9)
         ),
     },
@@ -434,7 +436,7 @@ THEORY = {
         "formulas": [
             "\\begin{bmatrix} V_S \\\\ I_S \\end{bmatrix} = \\begin{bmatrix} A & B \\\\ C & D \\end{bmatrix} \\begin{bmatrix} V_R \\\\ I_R \\end{bmatrix}",
             "AD - BC = 1 \\text{ (Condición de reciprocidad)}",
-            "A = \\cosh(\\gamma \\ell) , \\quad B = Z_c \\sinh(\\gamma \\ell)",
+            "A = 1 + \\frac{ZY}{2} , \\quad B = Z , \\quad C = Y(1 + \\frac{ZY}{4}) \\text{ (Modelo } \\pi \\text{)}",
         ],
         "fig_fn": None,
     },
@@ -457,13 +459,14 @@ THEORY = {
     "Flujo de Potencia": {
         "concepto": (
             "Determina el estado estacionario de la red. Busca tensiones y ángulos nodales "
-            "que satisfagan el balance de potencia activa y reactiva en cada barra."
+            "que satisfagan el balance de potencia activa y reactiva en cada barra. Se emplean "
+            "matrices de admitancia (Ybus) e impedancia (Zbus) para el modelado de la red."
         ),
         "formulas": [
-            r"I_{bus} = [Y_{bus}] \cdot V_{bus}",
-            r"S_i = V_i \left( \sum_{j=1}^n Y_{ij} V_j \right)^* = P_i + jQ_i",
-            r"V_i^{(k+1)} = \frac{1}{Y_{ii}} \left[ \frac{P_i - jQ_i}{V_i^{*(k)}} - \sum_{j \neq i} Y_{ij} V_j^{(k)} \right]",
-            r"\Delta V_{max} = \max |V_i^{(k+1)} - V_i^{(k)}| < \epsilon",
+            "I_{bus} = [Y_{bus}] \\cdot V_{bus} , \\quad [Z_{bus}] = [Y_{bus}]^{-1}",
+            "P_i - jQ_i = V_i^* \\sum_{j=1}^n Y_{ij} V_j",
+            "J = \\begin{bmatrix} \\frac{\\partial P}{\\partial \\delta} & \\frac{\\partial P}{\\partial |V|} \\\\ \\frac{\\partial Q}{\\partial \\delta} & \\frac{\\partial Q}{\\partial |V|} \\end{bmatrix} \\text{ (Jacobiano)}",
+            "Y_{ii}^{tap} = y/a^2 , \\quad Y_{ij}^{tap} = -y/a",
         ],
         "fig_fn": lambda inputs: fig_flujo_barras(
             [1.05,inputs.get("V1",1.05),0.982,0.975],
@@ -495,9 +498,9 @@ THEORY = {
             "el sistema en redes de secuencia positiva, negativa y cero."
         ),
         "formulas": [
-            "I_f = \\frac{V_{pf}}{Z_1 + Z_2 + Z_0} \\cdot 3 \\text{ (Falla SLG)}",
-            "I_f = \\frac{\\sqrt{3} V_{pf}}{Z_1 + Z_2} \\text{ (Falla Línea-Línea)}",
-            "I_f = \\frac{V_{pf}}{Z_1} \\text{ (Falla Trifásica)}",
+            "\\begin{bmatrix} V_a \\\\ V_b \\\\ V_c \\end{bmatrix} = \\begin{bmatrix} 1 & 1 & 1 \\\\ 1 & a^2 & a \\\\ 1 & a & a^2 \\end{bmatrix} \\begin{bmatrix} V_0 \\\\ V_1 \\\\ V_2 \\end{bmatrix} , \\quad a = e^{j120^\\circ}",
+            "I_f = \\frac{3 V_{pf}}{Z_1 + Z_2 + Z_0} \\text{ (Falla SLG)}",
+            "I_f = \\frac{V_{pf}}{Z_1 + (Z_2 Z_0)/(Z_2 + Z_0)} \\text{ (Falla DLG)}",
         ],
         "fig_fn": lambda inputs: fig_fallas(
             inputs.get("Vpf",1.0), inputs.get("Z1",0.1),
@@ -607,16 +610,23 @@ def generate_detailed_pdf(filename: str, module_name: str, steps_data: list):
         for line in result_text.split("\n"):
             line = line.strip()
             if not line: continue
-            # Encabezados tipo ═══
-            if line.startswith("═") or line.startswith("─"):
+            # Encabezados tipo ═══ u otros decoradores
+            if any(c in line for c in "═━─"):
+                # Si es un título decorado
+                story.append(Spacer(1, 4))
                 story.append(Paragraph(f"<b>{line}</b>", s["h2"]))
-            # Líneas de cálculo con [N]
-            elif line.startswith("[") and "]" in line:
+            # Líneas de matriz o vectores (empiezan con [ y no son títulos [N])
+            elif line.startswith("[") and not re.match(r'^\[\d+\]', line):
+                story.append(Paragraph(line.replace("<","&lt;").replace(">","&gt;"), s["code"]))
+            # Líneas de paso explícito [N]
+            elif re.match(r'^\[\d+\]', line):
                 story.append(Paragraph(line.replace("<","&lt;").replace(">","&gt;"), s["formula"]))
             # Líneas de convergencia/iteración
-            elif line.startswith("k=") or line.startswith(" k=") or "Iter" in line:
+            elif any(k in line for k in ["k=","Iter","it=","k =","it ="]):
                 story.append(Paragraph(line, s["code"]))
-            # Resultados finales
+            # Resultados finales / Checks
+            elif "✅" in line or "❌" in line:
+                story.append(Paragraph(line, s["warn"] if "❌" in line else s["code"]))
             else:
                 story.append(Paragraph(line.replace("<","&lt;").replace(">","&gt;"), s["body"]))
 
